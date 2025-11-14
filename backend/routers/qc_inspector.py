@@ -1,0 +1,518 @@
+"""
+QC Inspector Router
+Endpoints for quality control inspection
+"""
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict
+from sqlalchemy.orm import Session
+from backend.models.database import get_db, QCInspection, ReworkJob
+from backend.services.qc_inspector_service import qc_inspector_service
+from backend.services.s3_service import s3_service
+from PIL import Image
+import io
+import logging
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+# Request/Response models
+class InspectionRequest(BaseModel):
+    """Request for inspection"""
+    user_id: int = 1
+    item_reference: Optional[str] = None
+    force_simulated: bool = False
+
+
+class TriageRequest(BaseModel):
+    """Request for triaging inspection"""
+    inspection_id: int
+    decision: str = Field(..., description="accept, rework, or escalate")
+    operator_notes: Optional[str] = ""
+    is_false_positive: bool = False
+    selected_defects: Optional[List[str]] = None  # Defect IDs to rework
+
+
+class CreateReworkRequest(BaseModel):
+    """Request to create rework job"""
+    inspection_id: int
+    selected_defects: List[str]
+    operator_notes: str = ""
+    priority: str = "medium"
+    assigned_station: str = ""
+
+
+class UpdateReworkRequest(BaseModel):
+    """Request to update rework job status"""
+    status: str = Field(..., description="pending, in_progress, completed, verified")
+    operator: str = ""
+    notes: str = ""
+
+
+@router.post("/inspect")
+async def inspect_item(
+    file: UploadFile = File(...),
+    user_id: int = Form(1),
+    item_reference: Optional[str] = Form(None),
+    force_simulated: bool = Form(False),
+    db: Session = Depends(get_db)
+):
+    """
+    Inspect jewellery item for defects
+
+    Accepts image upload and performs QC inspection
+    """
+    try:
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="File must be an image")
+
+        # Read file
+        contents = await file.read()
+
+        # Validate size
+        max_size = 10 * 1024 * 1024
+        if len(contents) > max_size:
+            raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+
+        # Validate it's a valid image
+        try:
+            image = Image.open(io.BytesIO(contents))
+            image.verify()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid image file")
+
+        # Upload to S3
+        url, key = s3_service.upload_image(
+            contents,
+            folder="qc/inspections",
+            content_type=file.content_type
+        )
+
+        # Create thumbnail
+        thumbnail_url, thumb_key = s3_service.create_thumbnail(
+            contents,
+            max_size=(300, 300),
+            folder="qc/thumbnails"
+        )
+
+        # Perform inspection
+        inspection_result = await qc_inspector_service.inspect_image(
+            contents,
+            force_simulated=force_simulated
+        )
+
+        # Save to database
+        inspection = QCInspection(
+            user_id=user_id,
+            item_image_url=url,
+            item_thumbnail_url=thumbnail_url,
+            item_reference=item_reference,
+            detections=inspection_result["defects"],
+            detection_mode=inspection_result["detection_mode"],
+            model_version="v1.0",
+            confidence_threshold=inspection_result["confidence_threshold"],
+            inspected_at=datetime.utcnow()
+        )
+
+        db.add(inspection)
+        db.commit()
+        db.refresh(inspection)
+
+        logger.info(f"Inspection completed: {inspection.id} - {inspection_result['status']}")
+
+        return {
+            "inspection_id": inspection.id,
+            "status": inspection_result["status"],
+            "recommendation": inspection_result["recommendation"],
+            "defects": inspection_result["defects"],
+            "defect_count": inspection_result["defect_count"],
+            "image_url": url,
+            "thumbnail_url": thumbnail_url,
+            "detection_mode": inspection_result["detection_mode"],
+            "image_analysis": inspection_result["image_analysis"],
+            "requires_reshoot": inspection_result["requires_reshoot"],
+            "lighting_warning": inspection_result["lighting_warning"],
+            "created_at": inspection.created_at.isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during inspection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/triage")
+async def triage_inspection(
+    request: TriageRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Triage inspection results
+
+    Operator decides to accept, rework, or escalate
+    """
+    try:
+        inspection = db.query(QCInspection).filter(
+            QCInspection.id == request.inspection_id
+        ).first()
+
+        if not inspection:
+            raise HTTPException(status_code=404, detail="Inspection not found")
+
+        # Update inspection
+        inspection.operator_decision = request.decision
+        inspection.operator_notes = request.operator_notes
+        inspection.is_false_positive = request.is_false_positive
+
+        # If decision is rework, create rework job
+        rework_job_id = None
+        if request.decision == "rework" and request.selected_defects:
+            # Create rework job
+            rework_job = qc_inspector_service.create_rework_job(
+                inspection_result={
+                    "inspection_id": f"qc_{inspection.id}",
+                    "defects": inspection.detections
+                },
+                selected_defects=request.selected_defects,
+                operator_notes=request.operator_notes,
+                priority="medium"
+            )
+
+            # Save rework job to database
+            rework_db = ReworkJob(
+                defect_type=", ".join(set(d["type"] for d in rework_job["defects"])),
+                defect_severity=max(
+                    (d["severity"] for d in rework_job["defects"]),
+                    key=lambda x: {"low": 1, "medium": 2, "high": 3}.get(x, 0)
+                ),
+                defect_description=request.operator_notes,
+                evidence_images=[inspection.item_image_url],
+                assigned_to_station=rework_job["assigned_station"],
+                priority=rework_job["priority"],
+                status="pending",
+                lifecycle_events=rework_job["lifecycle"]
+            )
+
+            db.add(rework_db)
+            db.commit()
+            db.refresh(rework_db)
+
+            inspection.rework_job_id = rework_db.id
+            rework_job_id = rework_db.id
+
+        db.commit()
+
+        logger.info(f"Inspection {inspection.id} triaged: {request.decision}")
+
+        return {
+            "success": True,
+            "inspection_id": inspection.id,
+            "decision": request.decision,
+            "rework_job_id": rework_job_id,
+            "message": f"Inspection triaged: {request.decision}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error triaging inspection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/rework")
+async def create_rework_job(
+    request: CreateReworkRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Create rework job from inspection
+    """
+    try:
+        inspection = db.query(QCInspection).filter(
+            QCInspection.id == request.inspection_id
+        ).first()
+
+        if not inspection:
+            raise HTTPException(status_code=404, detail="Inspection not found")
+
+        # Create rework job
+        rework_job = qc_inspector_service.create_rework_job(
+            inspection_result={
+                "inspection_id": f"qc_{inspection.id}",
+                "defects": inspection.detections
+            },
+            selected_defects=request.selected_defects,
+            operator_notes=request.operator_notes,
+            priority=request.priority,
+            assigned_station=request.assigned_station
+        )
+
+        # Save to database
+        rework_db = ReworkJob(
+            defect_type=", ".join(set(d["type"] for d in rework_job["defects"])),
+            defect_severity=max(
+                (d["severity"] for d in rework_job["defects"]),
+                key=lambda x: {"low": 1, "medium": 2, "high": 3}.get(x, 0)
+            ),
+            defect_description=request.operator_notes,
+            evidence_images=[inspection.item_image_url],
+            assigned_to_station=request.assigned_station,
+            priority=request.priority,
+            status="pending",
+            lifecycle_events=rework_job["lifecycle"]
+        )
+
+        db.add(rework_db)
+        db.commit()
+        db.refresh(rework_db)
+
+        inspection.rework_job_id = rework_db.id
+        db.commit()
+
+        logger.info(f"Created rework job: {rework_db.id}")
+
+        return {
+            "success": True,
+            "rework_job_id": rework_db.id,
+            "inspection_id": inspection.id,
+            "message": "Rework job created"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating rework job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/rework/{rework_job_id}")
+async def update_rework_job(
+    rework_job_id: int,
+    request: UpdateReworkRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Update rework job status
+    """
+    try:
+        rework = db.query(ReworkJob).filter(ReworkJob.id == rework_job_id).first()
+
+        if not rework:
+            raise HTTPException(status_code=404, detail="Rework job not found")
+
+        # Update status
+        old_status = rework.status
+        rework.status = request.status
+
+        # Update timestamps
+        if request.status == "in_progress" and not rework.assigned_at:
+            rework.assigned_at = datetime.utcnow()
+            rework.assigned_operator = request.operator
+        elif request.status == "completed" and not rework.completed_at:
+            rework.completed_at = datetime.utcnow()
+        elif request.status == "verified" and not rework.verified_at:
+            rework.verified_at = datetime.utcnow()
+            rework.verified_by = request.operator
+
+        # Add lifecycle event
+        lifecycle = rework.lifecycle_events or []
+        lifecycle.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": request.status,
+            "operator": request.operator,
+            "action": f"Status changed from {old_status} to {request.status}",
+            "notes": request.notes
+        })
+        rework.lifecycle_events = lifecycle
+
+        db.commit()
+
+        logger.info(f"Rework job {rework_job_id} updated: {request.status}")
+
+        return {
+            "success": True,
+            "rework_job_id": rework_job_id,
+            "status": request.status,
+            "message": "Rework job updated"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating rework job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/inspections/{inspection_id}")
+async def get_inspection(inspection_id: int, db: Session = Depends(get_db)):
+    """
+    Get inspection by ID
+    """
+    try:
+        inspection = db.query(QCInspection).filter(
+            QCInspection.id == inspection_id
+        ).first()
+
+        if not inspection:
+            raise HTTPException(status_code=404, detail="Inspection not found")
+
+        # Get heatmap data
+        heatmap = qc_inspector_service.get_defect_heatmap_data({
+            "defects": inspection.detections,
+            "image_analysis": {"resolution": [1024, 1024]}
+        })
+
+        return {
+            "id": inspection.id,
+            "item_reference": inspection.item_reference,
+            "image_url": inspection.item_image_url,
+            "thumbnail_url": inspection.item_thumbnail_url,
+            "defects": inspection.detections,
+            "defect_count": len(inspection.detections) if inspection.detections else 0,
+            "detection_mode": inspection.detection_mode,
+            "operator_decision": inspection.operator_decision,
+            "operator_notes": inspection.operator_notes,
+            "is_false_positive": inspection.is_false_positive,
+            "rework_job_id": inspection.rework_job_id,
+            "heatmap": heatmap,
+            "created_at": inspection.created_at.isoformat(),
+            "inspected_at": inspection.inspected_at.isoformat() if inspection.inspected_at else None
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting inspection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/inspections")
+async def list_inspections(
+    user_id: int = 1,
+    decision: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    """
+    List inspections
+    """
+    try:
+        query = db.query(QCInspection).filter(QCInspection.user_id == user_id)
+
+        if decision:
+            query = query.filter(QCInspection.operator_decision == decision)
+
+        total = query.count()
+        inspections = query.order_by(
+            QCInspection.created_at.desc()
+        ).offset(offset).limit(limit).all()
+
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "inspections": [
+                {
+                    "id": i.id,
+                    "item_reference": i.item_reference,
+                    "thumbnail_url": i.item_thumbnail_url,
+                    "defect_count": len(i.detections) if i.detections else 0,
+                    "operator_decision": i.operator_decision,
+                    "rework_job_id": i.rework_job_id,
+                    "created_at": i.created_at.isoformat()
+                }
+                for i in inspections
+            ]
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing inspections: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/rework/{rework_job_id}")
+async def get_rework_job(rework_job_id: int, db: Session = Depends(get_db)):
+    """
+    Get rework job by ID
+    """
+    try:
+        rework = db.query(ReworkJob).filter(ReworkJob.id == rework_job_id).first()
+
+        if not rework:
+            raise HTTPException(status_code=404, detail="Rework job not found")
+
+        return {
+            "id": rework.id,
+            "defect_type": rework.defect_type,
+            "defect_severity": rework.defect_severity,
+            "defect_description": rework.defect_description,
+            "evidence_images": rework.evidence_images,
+            "assigned_to_station": rework.assigned_to_station,
+            "assigned_operator": rework.assigned_operator,
+            "priority": rework.priority,
+            "status": rework.status,
+            "lifecycle_events": rework.lifecycle_events,
+            "created_at": rework.created_at.isoformat(),
+            "assigned_at": rework.assigned_at.isoformat() if rework.assigned_at else None,
+            "completed_at": rework.completed_at.isoformat() if rework.completed_at else None,
+            "verified_at": rework.verified_at.isoformat() if rework.verified_at else None,
+            "verified_by": rework.verified_by
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting rework job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/rework")
+async def list_rework_jobs(
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    """
+    List rework jobs
+    """
+    try:
+        query = db.query(ReworkJob)
+
+        if status:
+            query = query.filter(ReworkJob.status == status)
+        if priority:
+            query = query.filter(ReworkJob.priority == priority)
+
+        total = query.count()
+        reworks = query.order_by(ReworkJob.created_at.desc()).offset(offset).limit(limit).all()
+
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "rework_jobs": [
+                {
+                    "id": r.id,
+                    "defect_type": r.defect_type,
+                    "defect_severity": r.defect_severity,
+                    "priority": r.priority,
+                    "status": r.status,
+                    "assigned_to_station": r.assigned_to_station,
+                    "assigned_operator": r.assigned_operator,
+                    "created_at": r.created_at.isoformat()
+                }
+                for r in reworks
+            ]
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing rework jobs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
