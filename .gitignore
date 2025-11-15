@@ -88,3 +88,4 @@ Thumbs.db
 # Markdown files (except README)
 *.md
 !README.md
+nul
