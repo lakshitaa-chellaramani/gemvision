@@ -2,7 +2,7 @@
 AI Jewellery Designer Service
 Handles text-to-image generation for jewellery designs using various AI models
 """
-import openai
+from openai import OpenAI
 from anthropic import Anthropic
 import google.generativeai as genai
 from backend.app.config import settings
@@ -15,7 +15,7 @@ import json
 logger = logging.getLogger(__name__)
 
 # Initialize AI clients
-openai.api_key = settings.openai_api_key
+openai_client = OpenAI(api_key=settings.openai_api_key)
 anthropic_client = Anthropic(api_key=settings.anthropic_api_key)
 genai.configure(api_key=settings.gemini_api_key)
 
@@ -129,7 +129,7 @@ class AIDesignerService:
             results = []
 
             for i in range(num_images):
-                response = openai.images.generate(
+                response = openai_client.images.generate(
                     model=self.default_model,
                     prompt=prompt,
                     size=size,

@@ -5,6 +5,7 @@ Centralized configuration management using Pydantic Settings
 from pydantic_settings import BaseSettings
 from typing import List
 import os
+from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -62,7 +63,8 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 3600
 
     class Config:
-        env_file = ".env"
+        # Look for .env file in the backend directory
+        env_file = str(Path(__file__).parent.parent / ".env")
         case_sensitive = False
         extra = "ignore"  # Ignore extra fields in .env file
 

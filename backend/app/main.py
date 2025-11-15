@@ -5,10 +5,12 @@ Main application entry point
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from backend.app.config import settings
 from backend.models.database import init_db
 import logging
 from datetime import datetime
+from pathlib import Path
 
 # Configure logging
 logging.basicConfig(
@@ -129,6 +131,11 @@ app.include_router(designer.router, prefix="/api/designer", tags=["AI Designer"]
 app.include_router(tryon.router, prefix="/api/tryon", tags=["Virtual Try-On"])
 app.include_router(qc_inspector.router, prefix="/api/qc", tags=["QC Inspector"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+
+# Mount static files for local storage (development only)
+storage_dir = Path(__file__).parent.parent / "storage"
+storage_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
 
 
 if __name__ == "__main__":
