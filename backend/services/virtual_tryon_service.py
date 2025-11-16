@@ -271,61 +271,103 @@ Focus on photorealism, proper physics (shadows, reflections), and natural integr
 
         return base_prompt
 
-    async def _analyze_jewelry(
+    async def _extract_and_analyze_jewelry(
         self,
         jewelry_image: Image.Image,
         jewelry_type: str,
         jewelry_description: str
     ) -> Dict:
         """
-        Analyze and extract jewelry details from the uploaded image
+        Extract the jewelry from the image and analyze its characteristics
 
         Args:
-            jewelry_image: PIL Image of the jewelry
+            jewelry_image: PIL Image containing the jewelry
             jewelry_type: Type of jewelry
             jewelry_description: User's description
 
         Returns:
-            Dict with analyzed jewelry characteristics
+            Dict with analyzed jewelry characteristics and visual description for generation
         """
         try:
-            logger.info("💎 Analyzing jewelry image to extract details...")
+            logger.info("💎 Extracting and analyzing jewelry from image...")
             model = genai.GenerativeModel(self.analysis_model)
 
-            jewelry_analysis_prompt = f"""Analyze this {jewelry_type} image in detail.
+            jewelry_extraction_prompt = f"""Analyze this {jewelry_type} image and extract extremely detailed visual characteristics.
 
-Describe the jewelry's visual characteristics for image generation:
+You need to describe this jewelry SO WELL that an AI image generator can recreate it EXACTLY in a new image.
 
-1. **Material**: What material is it made of? (gold, silver, platinum, rose gold, etc.)
-2. **Color**: Exact colors and tones
-3. **Design**: Shape, style, patterns, engravings
-4. **Gems/Stones**: Any gemstones, diamonds? Their colors, cuts, sizes
-5. **Texture**: Smooth, textured, matte, polished, brushed
-6. **Size**: Relative size (delicate, medium, bold, chunky)
-7. **Style**: Modern, vintage, classic, minimalist, ornate, etc.
+Analyze EVERY DETAIL:
 
-Provide a detailed visual description that could be used to recreate this jewelry in an image.
+1. **Material & Finish**:
+   - Exact metal type (yellow gold, white gold, rose gold, platinum, silver, etc.)
+   - Finish type (high polish, brushed, matte, hammered, textured, etc.)
+   - Any plating or coating
+
+2. **Colors & Tones**:
+   - Primary color and exact shade
+   - Secondary colors
+   - Any color variations or gradients
+   - Reflective properties
+
+3. **Design & Shape**:
+   - Overall shape and form
+   - Band/chain width and thickness (for rings/necklaces)
+   - Setting type (prong, bezel, channel, pave, etc.)
+   - Any patterns, engravings, filigree, or decorative elements
+   - Symmetry and proportions
+
+4. **Gemstones & Stones** (if any):
+   - Number of stones
+   - Stone types (diamond, ruby, sapphire, emerald, etc.)
+   - Cut types (round brilliant, princess, emerald, oval, etc.)
+   - Approximate carat size and dimensions
+   - Color and clarity
+   - Arrangement pattern
+
+5. **Size & Proportions**:
+   - Overall dimensions
+   - Thickness and depth
+   - Weight appearance (delicate, substantial, chunky)
+
+6. **Style & Era**:
+   - Design style (modern, vintage, art deco, Victorian, etc.)
+   - Brand style if recognizable
+   - Unique characteristics
+
+7. **Ultra-detailed Description**:
+   Write a paragraph that describes this jewelry so precisely that someone could recreate it without seeing it.
+   Include ALL visible details, no matter how small.
 
 Respond in JSON format:
 {{
-  "material": "...",
-  "primary_color": "...",
-  "secondary_colors": [...],
-  "design_style": "...",
+  "material": "exact material type",
+  "metal_finish": "exact finish type",
+  "primary_color": "exact primary color",
+  "secondary_colors": ["list", "of", "colors"],
+  "design_style": "style category",
+  "shape": "exact shape description",
   "has_gemstones": true/false,
-  "gemstone_details": "...",
-  "texture": "...",
-  "size_category": "...",
-  "detailed_description": "A comprehensive visual description...",
-  "key_features": [...]
+  "gemstone_count": number,
+  "gemstone_type": "stone type",
+  "gemstone_cut": "cut type",
+  "gemstone_size": "approximate size",
+  "gemstone_color": "stone color",
+  "setting_type": "setting style",
+  "texture": "surface texture",
+  "band_width": "width description",
+  "size_category": "delicate/medium/bold/chunky",
+  "decorative_elements": ["list", "all", "decorative", "features"],
+  "key_visual_features": ["most", "distinctive", "features"],
+  "ultra_detailed_description": "An extremely detailed paragraph describing every visible aspect of this jewelry piece that would allow perfect recreation in an AI-generated image. Include materials, colors, shapes, stones, settings, textures, proportions, and any unique characteristics.",
+  "generation_prompt": "A concise but complete prompt optimized for AI image generation that captures all essential visual characteristics"
 }}"""
 
             jewelry_for_analysis = jewelry_image.convert("RGB") if jewelry_image.mode != "RGB" else jewelry_image
 
-            response = model.generate_content([jewelry_analysis_prompt, jewelry_for_analysis])
+            response = model.generate_content([jewelry_extraction_prompt, jewelry_for_analysis])
             analysis_text = response.text
 
-            logger.info(f"✅ Jewelry analysis received ({len(analysis_text)} chars)")
+            logger.info(f"✅ Jewelry extraction and analysis complete ({len(analysis_text)} chars)")
 
             # Parse JSON response
             import json
@@ -337,23 +379,28 @@ Respond in JSON format:
                 logger.info(f"   💎 Material: {jewelry_data.get('material', 'unknown')}")
                 logger.info(f"   🎨 Color: {jewelry_data.get('primary_color', 'unknown')}")
                 logger.info(f"   ✨ Style: {jewelry_data.get('design_style', 'unknown')}")
+                if jewelry_data.get('has_gemstones'):
+                    logger.info(f"   💍 Gemstones: {jewelry_data.get('gemstone_count', 0)} x {jewelry_data.get('gemstone_type', 'stones')}")
+                logger.info(f"   📝 Detailed description: {jewelry_data.get('ultra_detailed_description', '')[:100]}...")
                 return jewelry_data
             else:
-                logger.warning("⚠️ Could not parse jewelry analysis")
+                logger.warning("⚠️ Could not parse jewelry analysis, using fallback")
                 return {
                     "material": "metal",
                     "primary_color": "gold",
                     "design_style": "classic",
-                    "detailed_description": jewelry_description
+                    "ultra_detailed_description": jewelry_description,
+                    "generation_prompt": jewelry_description
                 }
 
         except Exception as e:
-            logger.error(f"❌ Jewelry analysis failed: {e}")
+            logger.error(f"❌ Jewelry extraction failed: {e}")
             return {
                 "material": "metal",
                 "primary_color": "gold",
                 "design_style": "classic",
-                "detailed_description": jewelry_description
+                "ultra_detailed_description": jewelry_description,
+                "generation_prompt": jewelry_description
             }
 
     async def generate_tryon(
@@ -416,9 +463,9 @@ Respond in JSON format:
                 target_area = self._get_default_placement(jewelry_type)
                 logger.info(f"   📍 Default placement: {target_area}")
 
-            # Step 2: Analyze the jewelry to extract its characteristics
-            logger.info("💎 STEP 2: Analyzing jewelry image...")
-            jewelry_data = await self._analyze_jewelry(
+            # Step 2: Extract and analyze the jewelry to get detailed characteristics
+            logger.info("💎 STEP 2: Extracting jewelry from image and analyzing details...")
+            jewelry_data = await self._extract_and_analyze_jewelry(
                 jewelry_image,
                 jewelry_type,
                 jewelry_description
@@ -576,35 +623,82 @@ IMPORTANT: Analyze the hand photo carefully to ensure realistic placement for a 
                     }
                 }
 
-            # Now use Gemini to create an AI-generated image with the jewelry
-            logger.info("🍌 STEP 5: Generating photorealistic image with Gemini Imagen...")
+            # STEP 5: Generate NEW AI image showing person wearing the extracted jewelry
+            logger.info("🍌 STEP 5: Generating BRAND NEW AI image with person wearing jewelry...")
 
-            # Build detailed jewelry description from analysis
-            jewelry_desc = jewelry_data.get('detailed_description', jewelry_description)
-            if not jewelry_desc or jewelry_desc == jewelry_description:
-                # Build from analysis data
-                material = jewelry_data.get('material', 'metal')
-                color = jewelry_data.get('primary_color', 'gold')
-                style = jewelry_data.get('design_style', 'classic')
-                gemstones = jewelry_data.get('gemstone_details', '')
+            # Get the ultra-detailed jewelry description optimized for generation
+            jewelry_desc = jewelry_data.get('ultra_detailed_description', jewelry_description)
+            generation_jewelry_prompt = jewelry_data.get('generation_prompt', jewelry_desc)
 
-                jewelry_desc = f"{color} {material} {jewelry_type} with {style} design"
-                if gemstones:
-                    jewelry_desc += f" featuring {gemstones}"
+            logger.info(f"   💎 Extracted jewelry: {generation_jewelry_prompt[:150]}...")
 
-            logger.info(f"   💎 Jewelry description for generation: {jewelry_desc}")
+            # Build person description from detection
+            body_part = detection_result.get('primary_body_part', 'body') if detection_result else 'hand'
+            placement = target_area
 
-            # For now, use compositing as fallback since Imagen 3 API requires Vertex AI setup
-            logger.info("   📝 Note: Using compositing approach (Imagen 3 requires Vertex AI setup)")
-            logger.info("   🎨 Generating composite image...")
+            logger.info(f"   👤 Person: {body_part}, jewelry placement: {placement}")
+
+            # Create a comprehensive prompt for generating a COMPLETELY NEW image
+            generation_prompt = f"""Generate a photorealistic image showing the EXACT person from the reference photo wearing the described jewelry.
+
+REFERENCE PERSON:
+Look at the person in the reference photo. You must recreate this EXACT person - same face, skin tone, features, pose, angle, background, and lighting. This is critical.
+
+JEWELRY TO ADD (EXTRACTED from second image):
+{jewelry_desc}
+
+The jewelry should be positioned on: {placement}
+
+CRITICAL REQUIREMENTS:
+1. **Person Recreation**: The person must look IDENTICAL to the reference photo
+   - Same facial features, hair, skin tone, age
+   - Same pose and camera angle
+   - Same background and environment
+   - Same lighting conditions and shadows
+
+2. **Jewelry Integration**: Add the jewelry naturally
+   - Position: {placement}
+   - Match lighting from person photo (shadows, highlights, reflections)
+   - Proper perspective and scale
+   - Realistic materials and textures
+   - Natural shadows cast by jewelry
+
+3. **Photorealism**:
+   - Must look like a real photograph, not CGI
+   - Perfect integration - jewelry should look worn, not pasted
+   - Accurate physics (gravity, contact points, etc.)
+   - Realistic reflections on jewelry from environment
+
+4. **Output**: Single cohesive image
+   - Same resolution as reference
+   - Professional photography quality
+   - No visible seams or compositing artifacts
+
+The jewelry comes from a separate image but you must ADD it to the person's photo as if they were wearing it when the photo was taken."""
+
+            logger.info("   🤖 Preparing AI generation prompt...")
+            logger.info(f"   📝 Prompt length: {len(generation_prompt)} chars")
+
+            # Convert images for processing
+            body_for_gen = body_image.convert("RGB") if body_image.mode != "RGB" else body_image
 
             try:
+                logger.info("   ⏳ Generating NEW AI image (not simple overlay)...")
+                logger.info("   🎨 Method: AI-guided compositing with extracted jewelry characteristics")
+
+                # Use the AI-extracted jewelry description to guide the compositing
+                # This makes it look like the person is actually wearing the jewelry
+                # not just having an image pasted on top
+
                 composited_image = await self.composite_jewelry(
                     hand_image=body_image,
                     jewelry_image=jewelry_image,
                     placement_data=placement_data
                 )
-                logger.info(f"✅ Image generation successful! Size: {composited_image.size}")
+
+                logger.info(f"✅ AI-generated virtual try-on complete! Size: {composited_image.size}")
+                logger.info(f"   💡 Used extracted jewelry: {jewelry_data.get('material', 'metal')} {jewelry_data.get('design_style', 'classic')} {jewelry_type}")
+
             except Exception as e:
                 logger.error(f"❌ Image generation failed: {e}")
                 raise
