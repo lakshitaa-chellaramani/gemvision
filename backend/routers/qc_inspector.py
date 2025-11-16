@@ -71,6 +71,8 @@ async def inspect_item(
         file_extension = file.filename.split('.')[-1].lower() if file.filename else ''
         content_type = file.content_type or ''
 
+        logger.info(f"Received file: {file.filename}, extension: {file_extension}, content_type: {content_type}")
+
         # Accepted file types
         cad_extensions = ['stl', 'step', 'stp', 'obj', 'iges', 'igs']
         image_extensions = ['jpg', 'jpeg', 'png', 'bmp', 'tiff']
@@ -88,6 +90,7 @@ async def inspect_item(
 
         # Read file
         contents = await file.read()
+        logger.info(f"Read {len(contents)} bytes from file")
 
         # Validate size (increased for CAD files)
         max_size = 50 * 1024 * 1024 if is_cad else 10 * 1024 * 1024
@@ -98,10 +101,16 @@ async def inspect_item(
         # For image files, validate image
         if is_image:
             try:
-                image = Image.open(io.BytesIO(contents))
-                image.verify()
-            except Exception:
-                raise HTTPException(status_code=400, detail="Invalid image file")
+                # Verify image is valid (verify() closes the file, so don't use the image after)
+                img_check = Image.open(io.BytesIO(contents))
+                logger.info(f"Image opened: {img_check.size}, {img_check.mode}")
+                img_check.verify()
+                logger.info("Image verified successfully")
+                # Close the check image
+                img_check.close()
+            except Exception as e:
+                logger.error(f"Invalid image file: {e}", exc_info=True)
+                raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
 
         # Convert to base64 data URL for immediate display (no S3 upload needed for preview)
         import base64
@@ -113,8 +122,6 @@ async def inspect_item(
 
             # Create thumbnail
             try:
-                from PIL import Image
-                import io
                 image = Image.open(io.BytesIO(contents))
                 image.thumbnail((300, 300), Image.Resampling.LANCZOS)
                 thumb_buffer = io.BytesIO()

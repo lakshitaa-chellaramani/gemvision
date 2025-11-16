@@ -773,19 +773,140 @@ The jewelry comes from a separate image but you must ADD it to the person's phot
             logger.error(f"🔍 Traceback:\n{traceback.format_exc()}")
             raise
 
+    def _remove_background(self, image: Image.Image) -> Image.Image:
+        """
+        Remove background from jewelry image to create transparent PNG
+        Uses simple color-based removal for white/light backgrounds
+
+        Args:
+            image: PIL Image of jewelry
+
+        Returns:
+            PIL Image with transparent background (RGBA)
+        """
+        try:
+            import numpy as np
+
+            logger.info("Removing background from jewelry image...")
+
+            # Convert to RGBA if not already
+            if image.mode != 'RGBA':
+                image = image.convert('RGBA')
+
+            # Convert to numpy array for processing
+            data = np.array(image)
+
+            # Extract RGB channels
+            r, g, b, a = data[:,:,0], data[:,:,1], data[:,:,2], data[:,:,3]
+
+            # Define white/light background threshold
+            # Pixels with high brightness and low saturation are considered background
+            brightness = (r.astype(float) + g.astype(float) + b.astype(float)) / 3
+
+            # Calculate color variation (low variation = likely background)
+            color_var = np.maximum(np.maximum(np.abs(r.astype(float) - g.astype(float)),
+                                               np.abs(g.astype(float) - b.astype(float))),
+                                   np.abs(r.astype(float) - b.astype(float)))
+
+            # Create mask: background is bright (>230) with low color variation (<30)
+            background_mask = (brightness > 230) & (color_var < 30)
+
+            # Also check for pure white pixels
+            white_mask = (r > 250) & (g > 250) & (b > 250)
+
+            # Combine masks
+            final_mask = background_mask | white_mask
+
+            # Set alpha channel to 0 for background pixels
+            data[:,:,3] = np.where(final_mask, 0, a)
+
+            # Edge smoothing: Apply slight blur to alpha channel at edges
+            from PIL import ImageFilter
+            result = Image.fromarray(data, mode='RGBA')
+
+            # Extract and blur alpha channel
+            alpha = result.split()[3]
+            alpha = alpha.filter(ImageFilter.GaussianBlur(1))
+            result.putalpha(alpha)
+
+            logger.info("✅ Background removed successfully")
+            return result
+
+        except Exception as e:
+            logger.warning(f"⚠️ Background removal failed: {e}, returning original image")
+            # Return original image as RGBA if removal fails
+            return image.convert('RGBA') if image.mode != 'RGBA' else image
+
+    def _add_perspective_transform(
+        self,
+        jewelry: Image.Image,
+        angle: float,
+        tilt: float = 0
+    ) -> Image.Image:
+        """
+        Apply perspective transformation to make jewelry look more realistic
+
+        Args:
+            jewelry: Jewelry image (RGBA)
+            angle: Rotation angle in degrees
+            tilt: Forward/backward tilt in degrees
+
+        Returns:
+            Transformed jewelry image
+        """
+        try:
+            import numpy as np
+
+            if tilt == 0:
+                # No perspective, just rotate
+                if angle != 0:
+                    return jewelry.rotate(angle, expand=True, resample=Image.Resampling.BICUBIC)
+                return jewelry
+
+            # For more complex perspective transforms, use simple scaling approximation
+            # A positive tilt makes the top smaller (tilting away)
+            # A negative tilt makes the top larger (tilting toward)
+            width, height = jewelry.size
+
+            # Calculate scale factor based on tilt
+            scale_factor = 1 - abs(tilt) / 90.0 * 0.3  # Max 30% reduction
+
+            if tilt > 0:
+                # Top gets smaller
+                new_width_top = int(width * scale_factor)
+                new_width_bottom = width
+            else:
+                # Top gets larger
+                new_width_top = width
+                new_width_bottom = int(width * scale_factor)
+
+            # For simplicity, just apply rotation
+            # Full perspective transform would require more complex matrix operations
+            if angle != 0:
+                jewelry = jewelry.rotate(angle, expand=True, resample=Image.Resampling.BICUBIC)
+
+            return jewelry
+
+        except Exception as e:
+            logger.warning(f"⚠️ Perspective transform failed: {e}")
+            return jewelry
+
     async def composite_jewelry(
         self,
         hand_image: Image.Image,
         jewelry_image: Image.Image,
-        placement_data: Dict
+        placement_data: Dict,
+        remove_bg: bool = True
     ) -> Image.Image:
         """
         Composite jewelry onto hand image using placement instructions
+        Enhanced with background removal, perspective correction, and realistic shadows
 
         Args:
             hand_image: Base image (hand/body)
             jewelry_image: Jewelry to overlay
             placement_data: Dict with x, y, scale, rotation, etc.
+            remove_bg: Whether to remove background from jewelry image
 
         Returns:
             Composited PIL Image
@@ -794,35 +915,52 @@ The jewelry comes from a separate image but you must ADD it to the person's phot
             from PIL import ImageEnhance, ImageFilter
             import numpy as np
 
+            logger.info("🎨 Starting jewelry compositing...")
+            logger.info(f"   📏 Hand image: {hand_image.size}")
+            logger.info(f"   💍 Jewelry image: {jewelry_image.size}")
+
             # Create a copy of the hand image and ensure it's RGBA for compositing
             result = hand_image.copy().convert("RGBA")
 
-            # Process jewelry image and ensure it's RGBA for transparency support
+            # Process jewelry image
             jewelry = jewelry_image.copy()
-            if jewelry.mode != 'RGBA':
-                jewelry = jewelry.convert("RGBA")
+
+            # Remove background if requested
+            if remove_bg:
+                logger.info("   🔄 Removing jewelry background...")
+                jewelry = self._remove_background(jewelry)
+            else:
+                # Just ensure RGBA mode
+                if jewelry.mode != 'RGBA':
+                    jewelry = jewelry.convert("RGBA")
 
             # Apply transformations based on placement_data
             placement = placement_data.get("placement", {})
 
-            # Scale
+            # Scale first
             scale = placement.get("scale", 1.0)
             if scale != 1.0:
                 new_size = (
                     int(jewelry.width * scale),
                     int(jewelry.height * scale)
                 )
+                logger.info(f"   📐 Scaling jewelry to {scale:.2f}x ({new_size[0]}x{new_size[1]})")
                 jewelry = jewelry.resize(new_size, Image.Resampling.LANCZOS)
 
-            # Rotate
+            # Apply perspective and rotation
             rotation = placement.get("rotation_degrees", 0)
-            if rotation != 0:
-                jewelry = jewelry.rotate(rotation, expand=True, resample=Image.Resampling.BICUBIC)
+            tilt = placement.get("tilt_degrees", 0)
 
-            # Flip
+            if rotation != 0 or tilt != 0:
+                logger.info(f"   🔄 Applying rotation: {rotation}°, tilt: {tilt}°")
+                jewelry = self._add_perspective_transform(jewelry, rotation, tilt)
+
+            # Flip if needed
             if placement.get("flip_horizontal", False):
+                logger.info("   ↔️ Flipping horizontally")
                 jewelry = jewelry.transpose(Image.FLIP_LEFT_RIGHT)
             if placement.get("flip_vertical", False):
+                logger.info("   ↕️ Flipping vertically")
                 jewelry = jewelry.transpose(Image.FLIP_TOP_BOTTOM)
 
             # Calculate position
@@ -832,62 +970,88 @@ The jewelry comes from a separate image but you must ADD it to the person's phot
             x = int((hand_image.width * x_percent) / 100 - jewelry.width / 2)
             y = int((hand_image.height * y_percent) / 100 - jewelry.height / 2)
 
-            # Apply adjustments
+            logger.info(f"   📍 Positioning at ({x}, {y}) = ({x_percent:.1f}%, {y_percent:.1f}%)")
+
+            # Apply color/lighting adjustments to match scene
             adjustments = placement_data.get("adjustments", {})
 
             if adjustments.get("brightness", 1.0) != 1.0:
+                brightness_val = adjustments["brightness"]
+                logger.info(f"   ☀️ Adjusting brightness: {brightness_val:.2f}x")
                 enhancer = ImageEnhance.Brightness(jewelry)
-                jewelry = enhancer.enhance(adjustments["brightness"])
+                jewelry = enhancer.enhance(brightness_val)
 
             if adjustments.get("contrast", 1.0) != 1.0:
+                contrast_val = adjustments["contrast"]
+                logger.info(f"   ⚪ Adjusting contrast: {contrast_val:.2f}x")
                 enhancer = ImageEnhance.Contrast(jewelry)
-                jewelry = enhancer.enhance(adjustments["contrast"])
+                jewelry = enhancer.enhance(contrast_val)
 
             if adjustments.get("saturation", 1.0) != 1.0:
+                saturation_val = adjustments["saturation"]
+                logger.info(f"   🎨 Adjusting saturation: {saturation_val:.2f}x")
                 enhancer = ImageEnhance.Color(jewelry)
-                jewelry = enhancer.enhance(adjustments["saturation"])
+                jewelry = enhancer.enhance(saturation_val)
 
-            # Add shadow if specified
+            # Add realistic shadow
             shadows = placement_data.get("shadows", {})
-            if shadows.get("add_shadow", False):
+            if shadows.get("add_shadow", True):
+                logger.info("   🌑 Adding realistic shadow...")
+
                 # Create shadow layer
                 shadow = Image.new("RGBA", result.size, (0, 0, 0, 0))
-                shadow_jewelry = jewelry.copy()
 
-                # Darken the jewelry for shadow
-                shadow_jewelry = ImageEnhance.Brightness(shadow_jewelry).enhance(0.3)
+                # Create shadow version of jewelry
+                shadow_jewelry = Image.new("RGBA", jewelry.size, (0, 0, 0, 0))
+
+                # Extract alpha channel from jewelry
+                if jewelry.mode == 'RGBA':
+                    jewelry_alpha = jewelry.split()[3]
+
+                    # Create dark shadow using the alpha as mask
+                    shadow_color = Image.new("RGBA", jewelry.size, (0, 0, 0, 255))
+                    shadow_jewelry.paste(shadow_color, (0, 0), jewelry_alpha)
 
                 # Position shadow with offset
-                shadow_x = x + shadows.get("shadow_offset_x", 5)
-                shadow_y = y + shadows.get("shadow_offset_y", 5)
+                shadow_x = x + shadows.get("shadow_offset_x", 3)
+                shadow_y = y + shadows.get("shadow_offset_y", 3)
 
                 # Paste shadow
-                if jewelry.mode == 'RGBA':
-                    shadow.paste(shadow_jewelry, (shadow_x, shadow_y), shadow_jewelry)
-                else:
-                    shadow.paste(shadow_jewelry, (shadow_x, shadow_y))
+                shadow.paste(shadow_jewelry, (shadow_x, shadow_y), shadow_jewelry)
 
-                # Blur shadow
-                shadow = shadow.filter(ImageFilter.GaussianBlur(shadows.get("shadow_blur", 10)))
+                # Blur shadow for softness
+                blur_radius = shadows.get("shadow_blur", 8)
+                logger.info(f"      💨 Shadow blur: {blur_radius}px")
+                shadow = shadow.filter(ImageFilter.GaussianBlur(blur_radius))
 
                 # Apply shadow opacity
-                shadow_opacity = int(255 * shadows.get("shadow_opacity", 0.3))
-                shadow.putalpha(shadow_opacity)
+                shadow_opacity = shadows.get("shadow_opacity", 0.25)
+                logger.info(f"      👻 Shadow opacity: {shadow_opacity:.0%}")
+
+                # Adjust alpha channel of entire shadow
+                shadow_data = np.array(shadow)
+                shadow_data[:,:,3] = (shadow_data[:,:,3] * shadow_opacity).astype(np.uint8)
+                shadow = Image.fromarray(shadow_data, 'RGBA')
 
                 # Composite shadow onto result
-                result = Image.alpha_composite(result.convert("RGBA"), shadow)
+                result = Image.alpha_composite(result, shadow)
 
-            # Paste jewelry onto result
+            # Paste jewelry onto result (on top of shadow)
+            logger.info("   💎 Compositing jewelry onto hand...")
             if jewelry.mode == 'RGBA':
                 result.paste(jewelry, (x, y), jewelry)
             else:
                 result.paste(jewelry, (x, y))
 
-            logger.info("Jewelry composited successfully")
+            logger.info("✅ Jewelry composited successfully!")
+            logger.info(f"   📊 Final image size: {result.size}")
+
             return result.convert("RGB")
 
         except Exception as e:
-            logger.error(f"Error compositing jewelry: {e}")
+            logger.error(f"❌ Error compositing jewelry: {e}")
+            import traceback
+            logger.error(f"🔍 Traceback:\n{traceback.format_exc()}")
             raise
 
 

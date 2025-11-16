@@ -1,10 +1,12 @@
 """
 AI Jewellery Designer Service
-Handles text-to-image generation for jewellery designs using various AI models
+Handles text-to-image generation for jewellery designs using Gemini Imagen 3
+Cost-efficient implementation: $0.03 per image with Imagen 3
 """
-from openai import OpenAI
 from anthropic import Anthropic
 import google.generativeai as genai
+from google import genai as google_genai
+from google.genai import types
 from backend.app.config import settings
 from backend.services.s3_service import s3_service
 from typing import List, Dict, Optional
@@ -13,13 +15,23 @@ import uuid
 from datetime import datetime
 import json
 import base64
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
+import io
 
 logger = logging.getLogger(__name__)
 
 # Initialize AI clients
-openai_client = OpenAI(api_key=settings.openai_api_key)
 anthropic_client = Anthropic(api_key=settings.anthropic_api_key)
 genai.configure(api_key=settings.gemini_api_key)
+
+# Initialize Google GenAI client for Imagen 3
+try:
+    genai_client = google_genai.Client(api_key=settings.gemini_api_key)
+    logger.info("✅ Google GenAI client initialized for Imagen 3")
+except Exception as e:
+    logger.warning(f"⚠️ Could not initialize Google GenAI client: {e}")
+    genai_client = None
 
 
 class AIDesignerService:
@@ -64,7 +76,13 @@ class AIDesignerService:
     }
 
     def __init__(self):
-        self.default_model = settings.default_image_model
+        # Cost-efficient Imagen 3 model: $0.03 per image
+        self.default_model = "imagen-3.0-generate-001"
+        self.gemini_model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        self.genai_client = genai_client
+        logger.info("💎 AI Designer Service initialized with Imagen 3")
+        logger.info(f"   🎨 Image generation: {self.default_model} ($0.03/image)")
+        logger.info(f"   📊 Analysis model: gemini-2.0-flash-exp")
 
     def enhance_prompt(
         self,
@@ -104,7 +122,74 @@ class AIDesignerService:
         logger.info(f"Enhanced prompt: {enhanced}")
         return enhanced
 
-    async def generate_with_dalle(
+    async def _generate_placeholder_images(
+        self,
+        prompt: str,
+        num_images: int,
+        storage_dir: Path
+    ) -> List[Dict]:
+        """Generate placeholder images when API key is not available"""
+        logger.info(f"📋 Generating {num_images} placeholder jewelry design(s)...")
+        results = []
+
+        for i in range(num_images):
+            seed = f"placeholder_{uuid.uuid4().hex[:8]}"
+            filename = f"design_{seed}.png"
+            filepath = storage_dir / filename
+
+            # Create placeholder with prompt text
+            img = Image.new('RGB', (1024, 1024), color=(255, 255, 255))
+            draw = ImageDraw.Draw(img)
+
+            # Add border
+            draw.rectangle([(10, 10), (1014, 1014)], outline=(200, 200, 200), width=3)
+
+            # Add title
+            try:
+                title_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 40)
+                text_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 20)
+            except:
+                title_font = ImageFont.load_default()
+                text_font = ImageFont.load_default()
+
+            # Draw text
+            draw.text((512, 100), "Jewelry Design Preview", fill=(100, 100, 100), anchor="mm", font=title_font)
+            draw.text((512, 150), f"Design #{i+1}", fill=(150, 150, 150), anchor="mm", font=text_font)
+            draw.text((512, 200), "AI image generation coming soon", fill=(100, 150, 100), anchor="mm", font=text_font)
+
+            # Add wrapped prompt
+            y_pos = 280
+            words = prompt.split()
+            line = ""
+            for word in words[:50]:
+                test_line = line + word + " "
+                if len(test_line) > 55:
+                    draw.text((512, y_pos), line, fill=(100, 100, 100), anchor="mm", font=text_font)
+                    line = word + " "
+                    y_pos += 30
+                else:
+                    line = test_line
+            if line:
+                draw.text((512, y_pos), line, fill=(100, 100, 100), anchor="mm", font=text_font)
+
+            # Save
+            img.save(filepath, 'PNG')
+            # Use full backend URL so frontend can access the image
+            local_url = f"http://localhost:8000/storage/designs/{filename}"
+
+            logger.info(f"✅ Generated placeholder {i+1}/{num_images}: {local_url}")
+
+            results.append({
+                "url": local_url,
+                "s3_key": None,
+                "revised_prompt": prompt,
+                "model": "placeholder",
+                "seed": seed
+            })
+
+        return results
+
+    async def generate_with_gemini(
         self,
         prompt: str,
         num_images: int = 4,
@@ -112,64 +197,91 @@ class AIDesignerService:
         quality: str = "hd"
     ) -> List[Dict]:
         """
-        Generate images using DALL-E and upload to S3
+        Generate images using Gemini Imagen 3 - Cost: $0.03 per image
 
         Args:
             prompt: Enhanced prompt
-            num_images: Number of images to generate
-            size: Image size
+            num_images: Number of images to generate (max 4)
+            size: Image size - supports 1:1, 3:4, 4:3, 9:16, 16:9
             quality: Image quality
 
         Returns:
-            List of generated image data with S3 URLs
+            List of generated image data with local URLs
         """
         try:
-            # DALL-E 3 only supports 1 image per request
-            if self.default_model == "dall-e-3":
-                num_images = min(num_images, 1)
+            logger.info(f"💎 Generating {num_images} jewelry design(s) with Imagen 3...")
+            logger.info(f"📝 Prompt: {prompt[:200]}...")
+            logger.info(f"💰 Estimated cost: ${num_images * 0.03:.2f}")
 
             results = []
 
-            for i in range(num_images):
-                # Request base64 encoded image instead of URL
-                response = openai_client.images.generate(
-                    model=self.default_model,
-                    prompt=prompt,
-                    size=size,
-                    quality=quality if self.default_model == "dall-e-3" else "standard",
-                    n=1,
-                    response_format="b64_json"  # Request base64 format
+            # Create local storage directory
+            storage_dir = Path(__file__).parent.parent / "storage" / "designs"
+            storage_dir.mkdir(parents=True, exist_ok=True)
+
+            # Check if GenAI client is available - if not, use placeholder mode
+            if not self.genai_client:
+                logger.warning("⚠️ GEMINI_API_KEY not set - using placeholder mode")
+                logger.warning("💡 To use real AI image generation, add GEMINI_API_KEY to .env file")
+                return await self._generate_placeholder_images(prompt, num_images, storage_dir)
+
+            # Convert size to aspect ratio
+            aspect_ratio_map = {
+                "1024x1024": "1:1",
+                "768x1024": "3:4",
+                "1024x768": "4:3",
+                "576x1024": "9:16",
+                "1024x576": "16:9"
+            }
+            aspect_ratio = aspect_ratio_map.get(size, "1:1")
+
+            # Generate all images in one request for cost efficiency
+            logger.info(f"🎨 Calling Imagen 3 API with aspect ratio {aspect_ratio}...")
+
+            response = self.genai_client.models.generate_images(
+                model='imagen-3.0-generate-002',  # Use latest Imagen 3 model
+                prompt=prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images=num_images,
+                    output_mime_type="image/jpeg",
+                    safety_filter_level="BLOCK_MEDIUM_AND_ABOVE",
+                    person_generation="DONT_ALLOW",  # No people in jewelry photos
+                    aspect_ratio=aspect_ratio
                 )
+            )
 
-                for image in response.data:
-                    # Decode base64 image
-                    image_data = base64.b64decode(image.b64_json)
+            # Save each generated image
+            for i, generated_image in enumerate(response.generated_images):
+                seed = f"imagen3_{uuid.uuid4().hex[:8]}"
+                filename = f"design_{seed}.jpg"
+                filepath = storage_dir / filename
 
-                    # Upload to S3
-                    seed = f"dalle_{uuid.uuid4().hex[:8]}"
-                    filename = f"design_{seed}.png"
-                    s3_url, s3_key = s3_service.upload_image(
-                        image_data=image_data,
-                        folder="designs",
-                        filename=filename,
-                        content_type="image/png"
-                    )
+                # Save the image
+                generated_image.image.save(str(filepath), "JPEG", quality=95)
 
-                    logger.info(f"Uploaded image to S3: {s3_url}")
+                # Generate full backend URL so frontend can access the image
+                local_url = f"http://localhost:8000/storage/designs/{filename}"
 
-                    results.append({
-                        "url": s3_url,  # Use S3 URL instead of DALL-E URL
-                        "s3_key": s3_key,
-                        "revised_prompt": getattr(image, 'revised_prompt', prompt),
-                        "model": self.default_model,
-                        "seed": seed
-                    })
+                logger.info(f"✅ Generated image {i+1}/{num_images}: {local_url}")
 
-            logger.info(f"Generated {len(results)} images with DALL-E and uploaded to S3")
+                results.append({
+                    "url": local_url,
+                    "s3_key": None,  # Not using S3
+                    "revised_prompt": prompt,
+                    "model": self.default_model,
+                    "seed": seed
+                })
+
+            if not results:
+                raise Exception("Failed to generate any images")
+
+            logger.info(f"✅ Successfully generated {len(results)} images with Imagen 3")
+            logger.info(f"💰 Total cost: ${len(results) * 0.03:.2f}")
             return results
 
         except Exception as e:
-            logger.error(f"Error generating with DALL-E: {e}")
+            logger.error(f"❌ Error generating with Imagen 3: {e}")
+            logger.error(f"💡 Make sure GEMINI_API_KEY is set in .env file")
             raise
 
     async def analyze_design_with_claude(
@@ -284,8 +396,8 @@ class AIDesignerService:
                 prompt, category, style_preset, realism_mode
             )
 
-            # Generate images
-            images = await self.generate_with_dalle(
+            # Generate images with Gemini Imagen 3
+            images = await self.generate_with_gemini(
                 enhanced_prompt,
                 num_images=min(num_images, settings.max_images_per_generation),
                 size=settings.image_size,
