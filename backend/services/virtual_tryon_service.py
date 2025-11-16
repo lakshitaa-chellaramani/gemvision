@@ -1,6 +1,6 @@
 """
-Virtual Try-On Service using Veo 2 (Google Gemini API)
-Implements AI-powered jewelry overlay on hand/body photos with few-shot learning
+Virtual Try-On Service using Gemini 2.5 Flash Image Preview
+Implements AI-powered jewelry overlay using Gemini's image generation capabilities
 """
 import google.generativeai as genai
 from backend.app.config import settings
@@ -11,751 +11,304 @@ import io
 from PIL import Image
 import os
 from pathlib import Path
+import httpx
+import asyncio
 
 logger = logging.getLogger(__name__)
 
-# Initialize Gemini client (already configured in ai_designer_service)
-# genai.configure(api_key=settings.gemini_api_key)
-
 
 class VirtualTryOnService:
-    """Service for AI-powered virtual try-on using Google Gemini (Imagen 3)"""
+    """Service for AI-powered virtual try-on using Gemini 2.5 Flash Image Preview"""
 
     def __init__(self):
-        # Use Gemini model with image generation capabilities (Imagen 3 via Vertex AI)
-        self.analysis_model = "gemini-2.0-flash-exp"  # For analysis and placement
-        self.image_gen_model = "imagen-3.0-generate-001"  # For image generation (Gemini Banana)
+        # Configure Gemini API
+        genai.configure(api_key=settings.gemini_api_key)
 
-        self.examples_dir = Path(__file__).parent.parent / "assets" / "tryon_examples"
-        self.input_dir = self.examples_dir / "input"
-        self.output_dir = self.examples_dir / "output"
+        # Use Gemini 2.5 Flash with image generation capabilities
+        self.model_name = "gemini-2.5-flash-image-preview"
 
-        # Ensure directories exist
-        self.input_dir.mkdir(parents=True, exist_ok=True)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"🎨 Virtual Try-On Service initialized with {self.model_name}")
 
-        logger.info(f"🍌 Virtual Try-On Service initialized with Gemini Imagen 3 (Banana)")
-        logger.info(f"   📊 Analysis model: {self.analysis_model}")
-        logger.info(f"   🎨 Image generation model: {self.image_gen_model}")
-
-    def _load_example_pairs(self) -> List[Tuple[Image.Image, Image.Image, str]]:
+    def _image_to_base64(self, image: Image.Image) -> Tuple[str, str]:
         """
-        Load example input/output image pairs from the examples directory
-
-        Returns:
-            List of (input_image, output_image, description) tuples
-        """
-        examples = []
-
-        # Get all input files
-        input_files = sorted(list(self.input_dir.glob("*.[jp][pn]g")) +
-                           list(self.input_dir.glob("*.webp")))
-
-        logger.info(f"Found {len(input_files)} potential example input files")
-
-        for input_path in input_files:
-            # Extract base name (everything before the file extension)
-            base_name = input_path.stem
-
-            # Look for matching output file
-            output_candidates = [
-                self.output_dir / f"{base_name}{ext}"
-                for ext in [".jpg", ".jpeg", ".png", ".webp"]
-            ]
-
-            output_path = None
-            for candidate in output_candidates:
-                if candidate.exists():
-                    output_path = candidate
-                    break
-
-            if output_path:
-                try:
-                    # Load images
-                    input_img = Image.open(input_path).convert("RGB")
-                    output_img = Image.open(output_path).convert("RGB")
-
-                    # Create description from filename
-                    description = base_name.replace("_", " ").replace("-", " ")
-
-                    examples.append((input_img, output_img, description))
-                    logger.info(f"Loaded example pair: {base_name}")
-
-                except Exception as e:
-                    logger.warning(f"Failed to load example pair {base_name}: {e}")
-
-        logger.info(f"Loaded {len(examples)} example pairs for few-shot learning")
-        return examples
-
-    def _image_to_bytes(self, image: Image.Image, format: str = "JPEG") -> bytes:
-        """Convert PIL Image to bytes"""
-        buffer = io.BytesIO()
-        image.save(buffer, format=format)
-        return buffer.getvalue()
-
-    async def _detect_body_part_and_placement(
-        self,
-        body_image: Image.Image,
-        jewelry_type: str
-    ) -> Dict:
-        """
-        Use Gemini to detect what body part is in the image and determine best placement
+        Convert PIL Image to base64 string
 
         Args:
-            body_image: Image that could contain hand, neck, full body, etc.
-            jewelry_type: Type of jewelry to place
+            image: PIL Image to convert
 
         Returns:
-            Dict with detected body part and placement recommendations
+            Tuple of (base64_data, mime_type)
         """
         try:
-            model = genai.GenerativeModel(self.analysis_model)
+            # Convert to RGB if needed
+            if image.mode not in ('RGB', 'RGBA'):
+                image = image.convert('RGB')
 
-            # Mapping of jewelry types to possible body parts
-            jewelry_body_mapping = {
-                "ring": ["hand", "finger", "fingers"],
-                "bracelet": ["wrist", "hand", "arm"],
-                "necklace": ["neck", "chest", "upper body", "collar area"],
-                "earring": ["ear", "ears", "head", "face"]
-            }
+            # Save to bytes buffer
+            buffer = io.BytesIO()
+            format_type = 'PNG' if image.mode == 'RGBA' else 'JPEG'
+            image.save(buffer, format=format_type)
 
-            possible_parts = jewelry_body_mapping.get(jewelry_type.lower(), ["body"])
+            # Get base64 encoding
+            base64_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
 
-            detection_prompt = f"""Analyze this image and determine:
+            # Determine MIME type
+            mime_type = 'image/png' if format_type == 'PNG' else 'image/jpeg'
 
-1. **What body part(s) are visible?** (e.g., hand, neck, full body, wrist, face, ear)
-2. **Is it suitable for placing a {jewelry_type}?**
-3. **Where exactly should the {jewelry_type} be placed?**
-4. **What specific area/landmark should be used?** (e.g., "ring finger", "left wrist", "center of neck", "left earlobe")
-
-For a {jewelry_type}, we typically look for: {', '.join(possible_parts)}
-
-Respond in JSON format:
-{{
-  "detected_body_parts": ["hand", "wrist"],
-  "primary_body_part": "hand",
-  "is_suitable_for_{jewelry_type}": true,
-  "recommended_placement_area": "ring finger",
-  "specific_landmarks": ["knuckle of ring finger", "base of finger"],
-  "placement_description": "Place the {jewelry_type} on the ring finger, positioned between the knuckle and base",
-  "confidence": 0.95,
-  "alternative_placements": ["middle finger", "index finger"],
-  "image_quality_notes": "Clear image with good lighting, hand is visible and well-positioned"
-}}
-
-IMPORTANT:
-- If this is a full body image, identify the specific area where the {jewelry_type} should go
-- For rings: identify which finger(s) are visible and best for placement
-- For necklaces: identify the neck/collar bone area
-- For bracelets: identify wrist or arm area
-- For earrings: identify ear location
-- Be specific about left/right if distinguishable
-"""
-
-            content = [detection_prompt, body_image]
-
-            logger.info(f"Detecting body part for {jewelry_type} placement...")
-            response = model.generate_content(content)
-
-            # Parse JSON response
-            import json
-            response_text = response.text.strip()
-
-            # Extract JSON from response
-            start = response_text.find('{')
-            end = response_text.rfind('}') + 1
-
-            if start != -1 and end > start:
-                detection_data = json.loads(response_text[start:end])
-            else:
-                # Fallback if JSON parsing fails
-                detection_data = {
-                    "detected_body_parts": ["unknown"],
-                    "primary_body_part": "body",
-                    f"is_suitable_for_{jewelry_type}": True,
-                    "recommended_placement_area": self._get_default_placement(jewelry_type),
-                    "confidence": 0.5,
-                    "placement_description": f"Place {jewelry_type} on appropriate body part"
-                }
-
-            logger.info(f"Detected body part: {detection_data.get('primary_body_part')}")
-            logger.info(f"Recommended placement: {detection_data.get('recommended_placement_area')}")
-
-            return detection_data
+            logger.info(f"Converted image to base64. Size: {len(base64_data)} chars, MIME: {mime_type}")
+            return base64_data, mime_type
 
         except Exception as e:
-            logger.error(f"Error detecting body part: {e}")
-            # Return default placement
-            return {
-                "detected_body_parts": ["unknown"],
-                "primary_body_part": "body",
-                f"is_suitable_for_{jewelry_type}": True,
-                "recommended_placement_area": self._get_default_placement(jewelry_type),
-                "confidence": 0.5,
-                "placement_description": f"Place {jewelry_type} on appropriate body part",
-                "error": str(e)
-            }
+            logger.error(f"Error converting image to base64: {e}")
+            raise
 
-    def _get_default_placement(self, jewelry_type: str) -> str:
-        """Get default placement area for jewelry type"""
-        defaults = {
-            "ring": "ring finger",
-            "bracelet": "wrist",
-            "necklace": "neck center",
-            "earring": "earlobe"
-        }
-        return defaults.get(jewelry_type.lower(), "appropriate body part")
-
-    def _prepare_prompt_with_examples(
-        self,
-        jewelry_type: str,
-        jewelry_description: str,
-        target_area: str,
-        examples: List[Tuple[Image.Image, Image.Image, str]]
-    ) -> str:
+    async def _url_to_image(self, url: str) -> Image.Image:
         """
-        Prepare detailed prompt for Gemini with context from examples
+        Download image from URL and convert to PIL Image
 
         Args:
-            jewelry_type: Type of jewelry (ring, bracelet, necklace, earring)
-            jewelry_description: Description of the jewelry design
-            target_area: Where to place jewelry (e.g., "ring finger", "wrist")
-            examples: Example pairs for few-shot learning
+            url: Image URL
 
         Returns:
-            Detailed prompt string
-        """
-        base_prompt = f"""You are an expert at creating photorealistic virtual try-on images for jewelry.
-
-TASK: Create a realistic image showing {jewelry_type} placed on the {target_area} in the provided photo.
-
-JEWELRY DETAILS:
-- Type: {jewelry_type}
-- Description: {jewelry_description}
-
-REQUIREMENTS:
-1. **Realistic Placement**: Position the {jewelry_type} naturally on the {target_area}
-2. **Proper Perspective**: Match the angle and perspective of the hand/body in the photo
-3. **Accurate Lighting**: Match lighting conditions, shadows, and highlights from the original photo
-4. **Natural Integration**: The jewelry should look like it's actually being worn, not pasted on
-5. **Proper Sizing**: Scale the jewelry appropriately for the body part
-6. **Reflections & Shadows**: Add realistic reflections on the jewelry surface and cast shadows
-7. **Color Accuracy**: Maintain the jewelry's material colors (gold, silver, gemstones, etc.)
-8. **High Quality**: Output should be photorealistic and professional quality
-
-"""
-
-        if examples:
-            base_prompt += f"""
-FEW-SHOT EXAMPLES:
-I'm providing {len(examples)} example pairs showing:
-- BEFORE: Original photo of hand/body
-- AFTER: Same photo with jewelry realistically added
-
-Study these examples to understand:
-- How jewelry is naturally positioned
-- Proper lighting and shadow integration
-- Realistic sizing and perspective
-- Material reflections and properties
-
-Use these examples as a reference for creating the output image.
-
-"""
-
-        base_prompt += """
-OUTPUT INSTRUCTIONS:
-Generate a single image that looks exactly like the input photo but with the jewelry naturally placed and worn. The result should be indistinguishable from a real photograph of someone wearing the jewelry.
-
-Focus on photorealism, proper physics (shadows, reflections), and natural integration.
-"""
-
-        return base_prompt
-
-    async def _extract_and_analyze_jewelry(
-        self,
-        jewelry_image: Image.Image,
-        jewelry_type: str,
-        jewelry_description: str
-    ) -> Dict:
-        """
-        Extract the jewelry from the image and analyze its characteristics
-
-        Args:
-            jewelry_image: PIL Image containing the jewelry
-            jewelry_type: Type of jewelry
-            jewelry_description: User's description
-
-        Returns:
-            Dict with analyzed jewelry characteristics and visual description for generation
+            PIL Image
         """
         try:
-            logger.info("💎 Extracting and analyzing jewelry from image...")
-            model = genai.GenerativeModel(self.analysis_model)
+            logger.info(f"Fetching image from: {url}")
 
-            jewelry_extraction_prompt = f"""Analyze this {jewelry_type} image and extract extremely detailed visual characteristics.
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; GemVisionBot/1.0)"},
+                    follow_redirects=True
+                )
+                response.raise_for_status()
 
-You need to describe this jewelry SO WELL that an AI image generator can recreate it EXACTLY in a new image.
-
-Analyze EVERY DETAIL:
-
-1. **Material & Finish**:
-   - Exact metal type (yellow gold, white gold, rose gold, platinum, silver, etc.)
-   - Finish type (high polish, brushed, matte, hammered, textured, etc.)
-   - Any plating or coating
-
-2. **Colors & Tones**:
-   - Primary color and exact shade
-   - Secondary colors
-   - Any color variations or gradients
-   - Reflective properties
-
-3. **Design & Shape**:
-   - Overall shape and form
-   - Band/chain width and thickness (for rings/necklaces)
-   - Setting type (prong, bezel, channel, pave, etc.)
-   - Any patterns, engravings, filigree, or decorative elements
-   - Symmetry and proportions
-
-4. **Gemstones & Stones** (if any):
-   - Number of stones
-   - Stone types (diamond, ruby, sapphire, emerald, etc.)
-   - Cut types (round brilliant, princess, emerald, oval, etc.)
-   - Approximate carat size and dimensions
-   - Color and clarity
-   - Arrangement pattern
-
-5. **Size & Proportions**:
-   - Overall dimensions
-   - Thickness and depth
-   - Weight appearance (delicate, substantial, chunky)
-
-6. **Style & Era**:
-   - Design style (modern, vintage, art deco, Victorian, etc.)
-   - Brand style if recognizable
-   - Unique characteristics
-
-7. **Ultra-detailed Description**:
-   Write a paragraph that describes this jewelry so precisely that someone could recreate it without seeing it.
-   Include ALL visible details, no matter how small.
-
-Respond in JSON format:
-{{
-  "material": "exact material type",
-  "metal_finish": "exact finish type",
-  "primary_color": "exact primary color",
-  "secondary_colors": ["list", "of", "colors"],
-  "design_style": "style category",
-  "shape": "exact shape description",
-  "has_gemstones": true/false,
-  "gemstone_count": number,
-  "gemstone_type": "stone type",
-  "gemstone_cut": "cut type",
-  "gemstone_size": "approximate size",
-  "gemstone_color": "stone color",
-  "setting_type": "setting style",
-  "texture": "surface texture",
-  "band_width": "width description",
-  "size_category": "delicate/medium/bold/chunky",
-  "decorative_elements": ["list", "all", "decorative", "features"],
-  "key_visual_features": ["most", "distinctive", "features"],
-  "ultra_detailed_description": "An extremely detailed paragraph describing every visible aspect of this jewelry piece that would allow perfect recreation in an AI-generated image. Include materials, colors, shapes, stones, settings, textures, proportions, and any unique characteristics.",
-  "generation_prompt": "A concise but complete prompt optimized for AI image generation that captures all essential visual characteristics"
-}}"""
-
-            jewelry_for_analysis = jewelry_image.convert("RGB") if jewelry_image.mode != "RGB" else jewelry_image
-
-            response = model.generate_content([jewelry_extraction_prompt, jewelry_for_analysis])
-            analysis_text = response.text
-
-            logger.info(f"✅ Jewelry extraction and analysis complete ({len(analysis_text)} chars)")
-
-            # Parse JSON response
-            import json
-            start = analysis_text.find('{')
-            end = analysis_text.rfind('}') + 1
-
-            if start != -1 and end > start:
-                jewelry_data = json.loads(analysis_text[start:end])
-                logger.info(f"   💎 Material: {jewelry_data.get('material', 'unknown')}")
-                logger.info(f"   🎨 Color: {jewelry_data.get('primary_color', 'unknown')}")
-                logger.info(f"   ✨ Style: {jewelry_data.get('design_style', 'unknown')}")
-                if jewelry_data.get('has_gemstones'):
-                    logger.info(f"   💍 Gemstones: {jewelry_data.get('gemstone_count', 0)} x {jewelry_data.get('gemstone_type', 'stones')}")
-                logger.info(f"   📝 Detailed description: {jewelry_data.get('ultra_detailed_description', '')[:100]}...")
-                return jewelry_data
-            else:
-                logger.warning("⚠️ Could not parse jewelry analysis, using fallback")
-                return {
-                    "material": "metal",
-                    "primary_color": "gold",
-                    "design_style": "classic",
-                    "ultra_detailed_description": jewelry_description,
-                    "generation_prompt": jewelry_description
-                }
+                image = Image.open(io.BytesIO(response.content))
+                logger.info(f"Successfully loaded image. Size: {image.size}, Mode: {image.mode}")
+                return image
 
         except Exception as e:
-            logger.error(f"❌ Jewelry extraction failed: {e}")
-            return {
-                "material": "metal",
-                "primary_color": "gold",
-                "design_style": "classic",
-                "ultra_detailed_description": jewelry_description,
-                "generation_prompt": jewelry_description
-            }
+            logger.error(f"Error fetching image from {url}: {e}")
+            raise
 
-    async def generate_tryon(
+    async def generate_tryon_image(
         self,
-        body_image: Image.Image,
+        person_image: Image.Image,
         jewelry_image: Image.Image,
-        jewelry_type: str,
-        jewelry_description: str,
-        target_area: Optional[str] = None,
-        use_examples: bool = True,
-        auto_detect: bool = True
+        jewelry_type: str = "jewelry",
+        jewelry_description: str = ""
     ) -> Dict:
         """
-        Generate virtual try-on image using Gemini Imagen 3 with automatic detection
+        Generate virtual try-on image using Gemini 2.5 Flash Image Preview
+
+        This uses Gemini's AI image generation to create a completely new image
+        showing the person wearing the jewelry, rather than simple compositing.
 
         Args:
-            body_image: PIL Image (can be hand, neck, full body, etc.)
-            jewelry_image: PIL Image of the jewelry design
+            person_image: PIL Image of the person
+            jewelry_image: PIL Image of the jewelry
             jewelry_type: Type of jewelry (ring, bracelet, necklace, earring)
-            jewelry_description: Text description of the jewelry
-            target_area: Specific placement area (optional - will auto-detect if not provided)
-            use_examples: Whether to use few-shot learning with examples
-            auto_detect: Whether to automatically detect body part and placement
+            jewelry_description: Additional description of the jewelry
 
         Returns:
             Dict with generated image and metadata
         """
         try:
             logger.info("=" * 80)
-            logger.info("🎨 STARTING VIRTUAL TRY-ON GENERATION WITH IMAGEN 3")
+            logger.info("🎨 STARTING VIRTUAL TRY-ON GENERATION WITH GEMINI 2.5")
             logger.info("=" * 80)
-            logger.info(f"📸 Body image size: {body_image.size}, mode: {body_image.mode}")
+            logger.info(f"📸 Person image size: {person_image.size}, mode: {person_image.mode}")
             logger.info(f"💍 Jewelry image size: {jewelry_image.size}, mode: {jewelry_image.mode}")
             logger.info(f"📋 Jewelry type: {jewelry_type}")
             logger.info(f"📝 Description: {jewelry_description}")
-            logger.info(f"🎯 Auto-detect enabled: {auto_detect}")
-            logger.info(f"📚 Use examples: {use_examples}")
             logger.info("-" * 80)
-            # Step 1: Auto-detect body part and determine placement (if enabled)
-            detection_result = None
-            if auto_detect and target_area is None:
-                logger.info("🔍 STEP 1: Auto-detecting body part and placement area...")
-                try:
-                    detection_result = await self._detect_body_part_and_placement(
-                        body_image,
-                        jewelry_type
-                    )
-                    target_area = detection_result.get("recommended_placement_area")
-                    logger.info(f"✅ Auto-detection complete!")
-                    logger.info(f"   🎯 Detected: {detection_result.get('primary_body_part')}")
-                    logger.info(f"   📍 Placement: {target_area}")
-                    logger.info(f"   💯 Confidence: {detection_result.get('confidence', 0):.2%}")
-                except Exception as e:
-                    logger.warning(f"⚠️ Auto-detection failed: {e}")
-                    logger.info("   🔄 Falling back to default placement...")
-                    target_area = self._get_default_placement(jewelry_type)
-            elif target_area is None:
-                logger.info("🎯 STEP 1: Using default placement (auto-detect disabled)")
-                # Use default placement if no target area and auto-detect is off
-                target_area = self._get_default_placement(jewelry_type)
-                logger.info(f"   📍 Default placement: {target_area}")
 
-            # Step 2: Extract and analyze the jewelry to get detailed characteristics
-            logger.info("💎 STEP 2: Extracting jewelry from image and analyzing details...")
-            jewelry_data = await self._extract_and_analyze_jewelry(
-                jewelry_image,
-                jewelry_type,
-                jewelry_description
-            )
+            # Build the prompt (based on the Node.js version)
+            prompt = f"""You are an expert jewelry visualization AI. I am providing you with two images: one of a person and one of a jewelry item. Please digitally place the jewelry onto the person and transform them into a professional model-like presentation.
 
-            # Step 3: Load example pairs if available and requested
-            logger.info(f"📚 STEP 3: Loading example pairs (enabled: {use_examples})...")
-            examples = []
-            if use_examples:
-                examples = self._load_example_pairs()
-                logger.info(f"   ✅ Loaded {len(examples)} example pairs for few-shot learning")
-            else:
-                logger.info("   ⏭️  Skipping examples (disabled)")
+[Attach person's image]
+[Attach jewelry image]
 
-            # Step 3: Prepare prompt
-            prompt = self._prepare_prompt_with_examples(
-                jewelry_type,
-                jewelry_description,
-                target_area,
-                examples
-            )
+Instructions:
+1. Transform the person's pose to appear as a professional model in either:
+   - Sitting straight on a chair with excellent posture and confident positioning, OR
+   - Standing in an elegant, model-like pose with proper posture and poise
+2. Identify the type of jewelry and determine the correct placement on the person (earrings on ears, necklace on neck, bracelet on wrist, ring on finger, etc.)
+3. Scale the jewelry to realistic proportions that would fit the person naturally
+4. Change the background to a solid color: #030344 (deep navy blue)
+5. Ensure the person maintains a confident, professional model-like expression and body language
+6. Match the lighting, shadows, and reflections of the jewelry to create professional studio lighting
+7. Position the jewelry following natural body contours and realistic wearing angles
+8. Adjust the jewelry's perspective to match the person's refined pose and camera angle
+9. Blend seamlessly so the jewelry appears genuinely worn by the person
+10. Preserve the jewelry's original design, materials, colors, and textures
+11. Add appropriate shadows and highlights where the jewelry would naturally cast them
+12. Create professional studio-quality lighting that complements the #030344 background
 
-            # Prepare content for Gemini
-            content_parts = [prompt]
+Create a high-quality, professional model-style composite image showing the person in either a sitting or standing pose, naturally wearing the jewelry piece against the specified background color."""
 
-            # Add examples if available
-            if examples:
-                content_parts.append("\n=== REFERENCE EXAMPLES ===\n")
-                for i, (input_img, output_img, desc) in enumerate(examples, 1):
-                    content_parts.append(f"\nExample {i} ({desc}):")
-                    content_parts.append("BEFORE (original photo):")
-                    content_parts.append(input_img)
-                    content_parts.append("AFTER (with jewelry):")
-                    content_parts.append(output_img)
+            # Convert images to base64
+            logger.info("🔄 Converting images to base64...")
+            person_b64, person_mime = self._image_to_base64(person_image)
+            jewelry_b64, jewelry_mime = self._image_to_base64(jewelry_image)
 
-            # Add the actual images to process
-            content_parts.append("\n=== YOUR TASK ===\n")
-            content_parts.append("INPUT PHOTO (place jewelry on this):")
-            content_parts.append(body_image)
-            content_parts.append("\nJEWELRY TO ADD:")
-            content_parts.append(jewelry_image)
-            content_parts.append(f"\nGenerate the output image showing the {jewelry_type} naturally placed on the {target_area}.")
-
-            # Use Gemini to generate the image
-            # Note: Gemini currently doesn't directly generate images, but can analyze and guide
-            # For actual image generation, we'll use a hybrid approach:
-            # 1. Use Gemini to analyze placement and provide coordinates
-            # 2. Use image compositing to overlay the jewelry
-
-            model = genai.GenerativeModel(self.analysis_model)
-
-            # First, get analysis and placement instructions from Gemini
-            analysis_prompt = f"""Analyze the provided hand/body photo and jewelry image.
-
-Provide EXACT instructions for realistic jewelry placement:
-
-1. **Position**: Where exactly should the jewelry be placed? (x, y coordinates as percentages)
-2. **Size**: What scale factor should be applied? (0.5 = 50% of original size)
-3. **Rotation**: What angle/rotation in degrees?
-4. **Adjustments**: Any color/lighting adjustments needed to match the scene?
-
-Respond in JSON format:
-{{
-  "placement": {{
-    "x_percent": 50.0,
-    "y_percent": 50.0,
-    "scale": 1.0,
-    "rotation_degrees": 0,
-    "flip_horizontal": false,
-    "flip_vertical": false
-  }},
-  "adjustments": {{
-    "brightness": 1.0,
-    "contrast": 1.0,
-    "saturation": 1.0,
-    "warmth": 0
-  }},
-  "shadows": {{
-    "add_shadow": true,
-    "shadow_offset_x": 5,
-    "shadow_offset_y": 5,
-    "shadow_blur": 10,
-    "shadow_opacity": 0.3
-  }},
-  "explanation": "Brief explanation of the placement strategy"
-}}
-
-IMPORTANT: Analyze the hand photo carefully to ensure realistic placement for a {jewelry_type} on the {target_area}.
-"""
-
-            # Convert images to RGB for Gemini API (it doesn't handle RGBA well)
-            body_for_analysis = body_image.convert("RGB") if body_image.mode != "RGB" else body_image
-            jewelry_for_analysis = jewelry_image.convert("RGB") if jewelry_image.mode != "RGB" else jewelry_image
-
-            analysis_content = [
-                analysis_prompt,
-                body_for_analysis,
-                jewelry_for_analysis
-            ]
-
-            logger.info("🤖 STEP 3: Requesting placement analysis from Gemini AI...")
-            try:
-                response = model.generate_content(analysis_content)
-                analysis_text = response.text
-                logger.info(f"✅ Gemini response received ({len(analysis_text)} chars)")
-                logger.info(f"   📄 Response preview: {analysis_text[:200]}...")
-            except Exception as e:
-                logger.error(f"❌ Gemini API error: {e}")
-                logger.info("   🔄 Will use default placement values...")
-                analysis_text = ""
-
-            # Parse placement data from Gemini response
-            import json
-            placement_data = None
-            logger.info("🔧 STEP 4: Parsing placement data from AI response...")
-            try:
-                # Extract JSON from response
-                start = analysis_text.find('{')
-                end = analysis_text.rfind('}') + 1
-                if start != -1 and end > start:
-                    placement_data = json.loads(analysis_text[start:end])
-                    logger.info(f"✅ Successfully parsed placement data!")
-                    logger.info(f"   📊 Position: ({placement_data.get('placement', {}).get('x_percent', 0):.1f}%, {placement_data.get('placement', {}).get('y_percent', 0):.1f}%)")
-                    logger.info(f"   📏 Scale: {placement_data.get('placement', {}).get('scale', 1.0):.2f}x")
-                    logger.info(f"   🔄 Rotation: {placement_data.get('placement', {}).get('rotation_degrees', 0)}°")
-                else:
-                    logger.warning("⚠️ No JSON found in Gemini response")
-            except Exception as e:
-                logger.warning(f"⚠️ Could not parse Gemini response as JSON: {e}")
-
-            # If we couldn't parse placement data, use default values
-            if not placement_data:
-                logger.info("⚙️  Using default placement values (AI parsing failed)")
-                placement_data = {
-                    "placement": {
-                        "x_percent": 50.0,
-                        "y_percent": 50.0,
-                        "scale": 0.3,
-                        "rotation_degrees": 0,
-                        "flip_horizontal": False,
-                        "flip_vertical": False
-                    },
-                    "adjustments": {
-                        "brightness": 1.0,
-                        "contrast": 1.0,
-                        "saturation": 1.0,
-                        "warmth": 0
-                    },
-                    "shadows": {
-                        "add_shadow": True,
-                        "shadow_offset_x": 3,
-                        "shadow_offset_y": 3,
-                        "shadow_blur": 8,
-                        "shadow_opacity": 0.2
+            # Prepare request payload for Gemini API
+            # Using the REST API format from the Node.js code
+            parts = [
+                {"text": prompt},
+                {
+                    "inline_data": {
+                        "mime_type": person_mime,
+                        "data": person_b64
+                    }
+                },
+                {
+                    "inline_data": {
+                        "mime_type": jewelry_mime,
+                        "data": jewelry_b64
                     }
                 }
+            ]
 
-            # STEP 5: Generate NEW AI image showing person wearing the extracted jewelry
-            logger.info("🍌 STEP 5: Generating BRAND NEW AI image with person wearing jewelry...")
+            request_payload = {
+                "contents": [
+                    {
+                        "parts": parts
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 1.0
+                }
+            }
 
-            # Get the ultra-detailed jewelry description optimized for generation
-            jewelry_desc = jewelry_data.get('ultra_detailed_description', jewelry_description)
-            generation_jewelry_prompt = jewelry_data.get('generation_prompt', jewelry_desc)
+            logger.info("📤 Sending request to Gemini API...")
 
-            logger.info(f"   💎 Extracted jewelry: {generation_jewelry_prompt[:150]}...")
+            # Make direct REST API call using httpx
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent"
 
-            # Build person description from detection
-            body_part = detection_result.get('primary_body_part', 'body') if detection_result else 'hand'
-            placement = target_area
-
-            logger.info(f"   👤 Person: {body_part}, jewelry placement: {placement}")
-
-            # Create a comprehensive prompt for generating a COMPLETELY NEW image
-            generation_prompt = f"""Generate a photorealistic image showing the EXACT person from the reference photo wearing the described jewelry.
-
-REFERENCE PERSON:
-Look at the person in the reference photo. You must recreate this EXACT person - same face, skin tone, features, pose, angle, background, and lighting. This is critical.
-
-JEWELRY TO ADD (EXTRACTED from second image):
-{jewelry_desc}
-
-The jewelry should be positioned on: {placement}
-
-CRITICAL REQUIREMENTS:
-1. **Person Recreation**: The person must look IDENTICAL to the reference photo
-   - Same facial features, hair, skin tone, age
-   - Same pose and camera angle
-   - Same background and environment
-   - Same lighting conditions and shadows
-
-2. **Jewelry Integration**: Add the jewelry naturally
-   - Position: {placement}
-   - Match lighting from person photo (shadows, highlights, reflections)
-   - Proper perspective and scale
-   - Realistic materials and textures
-   - Natural shadows cast by jewelry
-
-3. **Photorealism**:
-   - Must look like a real photograph, not CGI
-   - Perfect integration - jewelry should look worn, not pasted
-   - Accurate physics (gravity, contact points, etc.)
-   - Realistic reflections on jewelry from environment
-
-4. **Output**: Single cohesive image
-   - Same resolution as reference
-   - Professional photography quality
-   - No visible seams or compositing artifacts
-
-The jewelry comes from a separate image but you must ADD it to the person's photo as if they were wearing it when the photo was taken."""
-
-            logger.info("   🤖 Preparing AI generation prompt...")
-            logger.info(f"   📝 Prompt length: {len(generation_prompt)} chars")
-
-            # Convert images for processing
-            body_for_gen = body_image.convert("RGB") if body_image.mode != "RGB" else body_image
-
-            try:
-                logger.info("   ⏳ Generating NEW AI image (not simple overlay)...")
-                logger.info("   🎨 Method: AI-guided compositing with extracted jewelry characteristics")
-
-                # Use the AI-extracted jewelry description to guide the compositing
-                # This makes it look like the person is actually wearing the jewelry
-                # not just having an image pasted on top
-
-                composited_image = await self.composite_jewelry(
-                    hand_image=body_image,
-                    jewelry_image=jewelry_image,
-                    placement_data=placement_data
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    api_url,
+                    json=request_payload,
+                    headers={
+                        "x-goog-api-key": settings.gemini_api_key,
+                        "Content-Type": "application/json"
+                    }
                 )
+                response.raise_for_status()
+                response_data = response.json()
 
-                logger.info(f"✅ AI-generated virtual try-on complete! Size: {composited_image.size}")
-                logger.info(f"   💡 Used extracted jewelry: {jewelry_data.get('material', 'metal')} {jewelry_data.get('design_style', 'classic')} {jewelry_type}")
+            logger.info("✅ Received response from Gemini API")
 
-            except Exception as e:
-                logger.error(f"❌ Image generation failed: {e}")
-                raise
+            # Extract the base64 image data from response
+            candidate = response_data.get("candidates", [{}])[0]
+            if not candidate or "content" not in candidate or "parts" not in candidate["content"]:
+                logger.error(f"Invalid response structure: {response_data}")
+                raise ValueError("No content parts found in response")
 
-            # Save the composited image locally
+            # Look for inline_data or inlineData in the response parts
+            base64_image_data = None
+            for part in candidate["content"]["parts"]:
+                # Check for both camelCase (inlineData) and snake_case (inline_data) formats
+                if "inlineData" in part and "data" in part["inlineData"]:
+                    base64_image_data = part["inlineData"]["data"]
+                    logger.info("Found image data in inlineData format")
+                    break
+                elif "inline_data" in part and "data" in part["inline_data"]:
+                    base64_image_data = part["inline_data"]["data"]
+                    logger.info("Found image data in inline_data format")
+                    break
+
+            if not base64_image_data:
+                # Fallback: try to extract from the entire response text
+                import json
+                response_text = json.dumps(response_data)
+                import re
+                data_match = re.search(r'"data":\s*"([^"]*)"', response_text)
+                if data_match:
+                    base64_image_data = data_match.group(1)
+                    logger.info("Found image data using fallback regex")
+
+            if not base64_image_data:
+                logger.error(f"Full response: {response_data}")
+                raise ValueError("No image data found in response")
+
+            # Decode base64 to PIL Image
+            logger.info("🖼️  Decoding base64 image data...")
+            image_bytes = base64.b64decode(base64_image_data)
+            generated_image = Image.open(io.BytesIO(image_bytes))
+
+            logger.info(f"✅ Generated image decoded. Size: {generated_image.size}, Mode: {generated_image.mode}")
+
+            # Save the generated image locally
             import uuid
-            from pathlib import Path
             import datetime
 
-            logger.info("💾 STEP 6: Saving result to local storage...")
+            logger.info("💾 Saving result to local storage...")
             storage_dir = Path(__file__).parent.parent / "storage" / "tryon"
             storage_dir.mkdir(parents=True, exist_ok=True)
 
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             unique_id = str(uuid.uuid4())[:8]
-            result_filename = f"result_{timestamp}_{unique_id}.jpg"
+            result_filename = f"tryon_{timestamp}_{unique_id}.png"
             result_path = storage_dir / result_filename
 
-            try:
-                composited_image.save(result_path, format="JPEG", quality=95)
-                result_url = f"/storage/tryon/{result_filename}"
-                logger.info(f"✅ Saved to: {result_path}")
-                logger.info(f"   🌐 URL: {result_url}")
-            except Exception as e:
-                logger.error(f"❌ Failed to save image: {e}")
-                raise
+            generated_image.save(result_path, format="PNG", quality=95)
+            result_url = f"/storage/tryon/{result_filename}"
+
+            logger.info(f"✅ Saved to: {result_path}")
+            logger.info(f"   🌐 URL: {result_url}")
+
+            # Upload to S3 if configured
+            s3_url = None
+            s3_key = None
+
+            if hasattr(settings, 'aws_s3_bucket') and settings.aws_s3_bucket:
+                try:
+                    logger.info("☁️  Uploading to S3...")
+                    import boto3
+
+                    s3_client = boto3.client(
+                        's3',
+                        aws_access_key_id=settings.aws_access_key_id,
+                        aws_secret_access_key=settings.aws_secret_access_key,
+                        region_name=getattr(settings, 'aws_region', 'us-east-1')
+                    )
+
+                    s3_key = f"generated-images/{unique_id}.png"
+
+                    with open(result_path, 'rb') as f:
+                        s3_client.upload_fileobj(
+                            f,
+                            settings.aws_s3_bucket,
+                            s3_key,
+                            ExtraArgs={'ContentType': 'image/png'}
+                        )
+
+                    s3_url = f"https://{settings.aws_s3_bucket}.s3.amazonaws.com/{s3_key}"
+                    logger.info(f"✅ Uploaded to S3: {s3_url}")
+
+                    # Optionally delete local file if S3 upload successful
+                    # os.remove(result_path)
+
+                except Exception as e:
+                    logger.warning(f"⚠️  S3 upload failed: {e}")
+                    # Continue anyway with local file
 
             result = {
                 "success": True,
-                "result_url": result_url,
-                "composite_url": result_url,
-                "analysis": analysis_text,
-                "placement_data": placement_data,
-                "jewelry_analysis": jewelry_data,
-                "num_examples_used": len(examples),
-                "model_used": f"{self.analysis_model} + {self.image_gen_model}",
-                "analysis_model": self.analysis_model,
-                "image_gen_model": self.image_gen_model,
-                "target_area": target_area,
+                "result_url": s3_url or result_url,
+                "local_url": result_url,
+                "s3_url": s3_url,
+                "s3_key": s3_key,
+                "local_path": str(result_path),
+                "size": len(image_bytes),
+                "image_size": generated_image.size,
+                "model_used": self.model_name,
                 "jewelry_type": jewelry_type,
-                "message": "Virtual try-on generated successfully with Gemini Imagen 3 (Banana)!",
-                "local_storage": True,
-                "generation_method": "composite_with_ai_analysis"
+                "message": "Virtual try-on generated successfully with Gemini 2.5 Flash!",
+                "generation_method": "gemini_ai_image_generation"
             }
-
-            # Add detection results if auto-detection was used
-            if detection_result:
-                result["detection_result"] = {
-                    "detected_parts": detection_result.get("detected_body_parts", []),
-                    "primary_body_part": detection_result.get("primary_body_part"),
-                    "confidence": detection_result.get("confidence", 0),
-                    "placement_description": detection_result.get("placement_description"),
-                    "recommended_placement_area": detection_result.get("recommended_placement_area"),
-                    "alternative_placements": detection_result.get("alternative_placements", []),
-                    "is_suitable": detection_result.get(f"is_suitable_for_{jewelry_type}", True),
-                    "ai_recommendation": detection_result.get("placement_description", f"Place {jewelry_type} on {target_area}")
-                }
 
             logger.info("=" * 80)
             logger.info("✨ VIRTUAL TRY-ON GENERATION COMPLETE!")
@@ -773,122 +326,41 @@ The jewelry comes from a separate image but you must ADD it to the person's phot
             logger.error(f"🔍 Traceback:\n{traceback.format_exc()}")
             raise
 
-    async def composite_jewelry(
+    async def generate_tryon(
         self,
-        hand_image: Image.Image,
+        body_image: Image.Image,
         jewelry_image: Image.Image,
-        placement_data: Dict
-    ) -> Image.Image:
+        jewelry_type: str,
+        jewelry_description: str,
+        target_area: Optional[str] = None,
+        use_examples: bool = False,
+        auto_detect: bool = False
+    ) -> Dict:
         """
-        Composite jewelry onto hand image using placement instructions
+        Generate virtual try-on image (main entry point for compatibility)
+
+        This method provides backward compatibility with the old interface
+        while using the new Gemini AI image generation approach.
 
         Args:
-            hand_image: Base image (hand/body)
-            jewelry_image: Jewelry to overlay
-            placement_data: Dict with x, y, scale, rotation, etc.
+            body_image: PIL Image (can be hand, neck, full body, etc.)
+            jewelry_image: PIL Image of the jewelry design
+            jewelry_type: Type of jewelry (ring, bracelet, necklace, earring)
+            jewelry_description: Text description of the jewelry
+            target_area: Specific placement area (ignored - AI determines this)
+            use_examples: Whether to use few-shot learning (ignored in new version)
+            auto_detect: Whether to auto-detect body part (ignored - AI does this)
 
         Returns:
-            Composited PIL Image
+            Dict with generated image and metadata
         """
-        try:
-            from PIL import ImageEnhance, ImageFilter
-            import numpy as np
-
-            # Create a copy of the hand image and ensure it's RGBA for compositing
-            result = hand_image.copy().convert("RGBA")
-
-            # Process jewelry image and ensure it's RGBA for transparency support
-            jewelry = jewelry_image.copy()
-            if jewelry.mode != 'RGBA':
-                jewelry = jewelry.convert("RGBA")
-
-            # Apply transformations based on placement_data
-            placement = placement_data.get("placement", {})
-
-            # Scale
-            scale = placement.get("scale", 1.0)
-            if scale != 1.0:
-                new_size = (
-                    int(jewelry.width * scale),
-                    int(jewelry.height * scale)
-                )
-                jewelry = jewelry.resize(new_size, Image.Resampling.LANCZOS)
-
-            # Rotate
-            rotation = placement.get("rotation_degrees", 0)
-            if rotation != 0:
-                jewelry = jewelry.rotate(rotation, expand=True, resample=Image.Resampling.BICUBIC)
-
-            # Flip
-            if placement.get("flip_horizontal", False):
-                jewelry = jewelry.transpose(Image.FLIP_LEFT_RIGHT)
-            if placement.get("flip_vertical", False):
-                jewelry = jewelry.transpose(Image.FLIP_TOP_BOTTOM)
-
-            # Calculate position
-            x_percent = placement.get("x_percent", 50.0)
-            y_percent = placement.get("y_percent", 50.0)
-
-            x = int((hand_image.width * x_percent) / 100 - jewelry.width / 2)
-            y = int((hand_image.height * y_percent) / 100 - jewelry.height / 2)
-
-            # Apply adjustments
-            adjustments = placement_data.get("adjustments", {})
-
-            if adjustments.get("brightness", 1.0) != 1.0:
-                enhancer = ImageEnhance.Brightness(jewelry)
-                jewelry = enhancer.enhance(adjustments["brightness"])
-
-            if adjustments.get("contrast", 1.0) != 1.0:
-                enhancer = ImageEnhance.Contrast(jewelry)
-                jewelry = enhancer.enhance(adjustments["contrast"])
-
-            if adjustments.get("saturation", 1.0) != 1.0:
-                enhancer = ImageEnhance.Color(jewelry)
-                jewelry = enhancer.enhance(adjustments["saturation"])
-
-            # Add shadow if specified
-            shadows = placement_data.get("shadows", {})
-            if shadows.get("add_shadow", False):
-                # Create shadow layer
-                shadow = Image.new("RGBA", result.size, (0, 0, 0, 0))
-                shadow_jewelry = jewelry.copy()
-
-                # Darken the jewelry for shadow
-                shadow_jewelry = ImageEnhance.Brightness(shadow_jewelry).enhance(0.3)
-
-                # Position shadow with offset
-                shadow_x = x + shadows.get("shadow_offset_x", 5)
-                shadow_y = y + shadows.get("shadow_offset_y", 5)
-
-                # Paste shadow
-                if jewelry.mode == 'RGBA':
-                    shadow.paste(shadow_jewelry, (shadow_x, shadow_y), shadow_jewelry)
-                else:
-                    shadow.paste(shadow_jewelry, (shadow_x, shadow_y))
-
-                # Blur shadow
-                shadow = shadow.filter(ImageFilter.GaussianBlur(shadows.get("shadow_blur", 10)))
-
-                # Apply shadow opacity
-                shadow_opacity = int(255 * shadows.get("shadow_opacity", 0.3))
-                shadow.putalpha(shadow_opacity)
-
-                # Composite shadow onto result
-                result = Image.alpha_composite(result.convert("RGBA"), shadow)
-
-            # Paste jewelry onto result
-            if jewelry.mode == 'RGBA':
-                result.paste(jewelry, (x, y), jewelry)
-            else:
-                result.paste(jewelry, (x, y))
-
-            logger.info("Jewelry composited successfully")
-            return result.convert("RGB")
-
-        except Exception as e:
-            logger.error(f"Error compositing jewelry: {e}")
-            raise
+        # Simply delegate to the new AI generation method
+        return await self.generate_tryon_image(
+            person_image=body_image,
+            jewelry_image=jewelry_image,
+            jewelry_type=jewelry_type,
+            jewelry_description=jewelry_description
+        )
 
 
 # Global service instance

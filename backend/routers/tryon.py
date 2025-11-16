@@ -487,21 +487,19 @@ class CompositeTryOnRequest(BaseModel):
 async def composite_tryon(
     body_photo: UploadFile = File(..., description="Photo of any body part"),
     jewelry_photo: UploadFile = File(...),
-    placement_json: str = Form(...),
+    jewelry_type: str = Form("jewelry", description="Type of jewelry"),
+    jewelry_description: str = Form("", description="Description of jewelry"),
     save_to_db: bool = Form(False),
     user_id: int = Form(1),
     design_id: Optional[int] = Form(None)
 ):
     """
-    Composite jewelry onto body photo using AI-generated placement instructions
+    Generate AI-powered virtual try-on composite image using Gemini 2.5
 
     Works with any body part photo (hand, neck, full body, ear, etc.)
-    Takes the placement analysis from generate-ai-tryon and creates the final image
+    Uses Gemini AI to create a photorealistic composite image
     """
     try:
-        # Parse placement data
-        placement_data = json.loads(placement_json)
-
         # Read images
         body_contents = await body_photo.read()
         jewelry_contents = await jewelry_photo.read()
@@ -509,60 +507,28 @@ async def composite_tryon(
         body_image = Image.open(io.BytesIO(body_contents)).convert("RGB")
         jewelry_image = Image.open(io.BytesIO(jewelry_contents)).convert("RGBA")
 
-        logger.info("Compositing jewelry onto body photo...")
+        logger.info("Generating AI-powered virtual try-on...")
 
-        # Composite using the service
-        result_image = await virtual_tryon_service.composite_jewelry(
-            hand_image=body_image,
+        # Generate using AI instead of simple compositing
+        result = await virtual_tryon_service.generate_tryon_image(
+            person_image=body_image,
             jewelry_image=jewelry_image,
-            placement_data=placement_data
+            jewelry_type=jewelry_type,
+            jewelry_description=jewelry_description
         )
 
-        # Convert to bytes
-        output_buffer = io.BytesIO()
-        result_image.save(output_buffer, format="JPEG", quality=95)
-        output_bytes = output_buffer.getvalue()
+        # Extract the generated image from local storage
+        result_image = Image.open(result["local_path"])
 
-        # For local development: save to local storage instead of S3
-        import uuid
-        from pathlib import Path
-        import datetime
-
-        # Create local storage directory
-        storage_dir = Path(__file__).parent.parent / "storage" / "tryon"
-        storage_dir.mkdir(parents=True, exist_ok=True)
-
-        # Generate unique filenames
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        unique_id = str(uuid.uuid4())[:8]
-
-        result_filename = f"result_{timestamp}_{unique_id}.jpg"
-        body_filename = f"body_{timestamp}_{unique_id}.jpg"
-        jewelry_filename = f"jewelry_{timestamp}_{unique_id}.png"
-
-        # Save files locally
-        result_path = storage_dir / result_filename
-        body_path = storage_dir / body_filename
-        jewelry_path = storage_dir / jewelry_filename
-
-        result_image.save(result_path, format="JPEG", quality=95)
-        body_image.save(body_path, format="JPEG", quality=95)
-        jewelry_image.save(jewelry_path, format="PNG")
-
-        # Create URLs for local access
-        result_url = f"/storage/tryon/{result_filename}"
-        body_url = f"/storage/tryon/{body_filename}"
-        jewelry_url = f"/storage/tryon/{jewelry_filename}"
-
-        logger.info(f"Saved images locally: {result_filename}")
+        logger.info(f"AI try-on generated successfully")
 
         response_data = {
             "success": True,
-            "result_url": result_url,
-            "body_photo_url": body_url,
-            "jewelry_image_url": jewelry_url,
-            "placement_used": placement_data,
-            "local_storage": True
+            "result_url": result["result_url"],
+            "local_url": result["local_url"],
+            "s3_url": result.get("s3_url"),
+            "model_used": result["model_used"],
+            "generation_method": result["generation_method"]
         }
 
         # Save to database if requested
@@ -573,11 +539,11 @@ async def composite_tryon(
             tryon = TryOn(
                 user_id=user_id,
                 design_id=design_id,
-                hand_photo_url=body_url,
-                overlay_image_url=jewelry_url,
-                overlay_transform=placement_data,
-                finger_type=placement_data.get("target_area", "unknown"),
-                snapshot_url=result_url
+                hand_photo_url=result["local_url"],
+                overlay_image_url=result["local_url"],
+                overlay_transform={},  # No manual transform needed with AI generation
+                finger_type=jewelry_type,
+                snapshot_url=result["result_url"]
             )
 
             db.add(tryon)
@@ -600,29 +566,25 @@ async def composite_tryon(
 @router.get("/examples/status")
 async def get_examples_status():
     """
-    Check status of example pairs for few-shot learning
+    Check status of AI-powered virtual try-on service
 
-    Returns information about loaded examples
+    Returns information about the service configuration
     """
     try:
-        examples = virtual_tryon_service._load_example_pairs()
-
-        example_list = []
-        for input_img, output_img, description in examples:
-            example_list.append({
-                "description": description,
-                "input_size": f"{input_img.width}x{input_img.height}",
-                "output_size": f"{output_img.width}x{output_img.height}"
-            })
-
         return {
             "success": True,
-            "total_examples": len(examples),
-            "examples": example_list,
-            "examples_directory": str(virtual_tryon_service.examples_dir),
-            "message": f"Loaded {len(examples)} example pairs. Add more to improve results!"
+            "model": virtual_tryon_service.model_name,
+            "generation_method": "gemini_ai_image_generation",
+            "message": f"AI-powered virtual try-on using {virtual_tryon_service.model_name}",
+            "features": [
+                "Automatic body part detection",
+                "Intelligent jewelry placement",
+                "Professional model-style transformations",
+                "Studio-quality lighting and backgrounds",
+                "Photorealistic compositing"
+            ]
         }
 
     except Exception as e:
-        logger.error(f"Error checking examples status: {e}")
+        logger.error(f"Error checking service status: {e}")
         raise HTTPException(status_code=500, detail=str(e))

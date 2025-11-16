@@ -12,7 +12,7 @@ psycopg2-binary==2.9.9
 # AI APIs
 anthropic>=0.73.0
 openai>=2.8.0
-google-generativeai==0.3.1
+google-generativeai>=0.8.0
 
 # AWS
 boto3==1.29.7
