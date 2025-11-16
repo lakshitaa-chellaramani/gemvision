@@ -86,12 +86,31 @@ const LOADING_MESSAGES = [
   "🎭 Bringing your vision to life...",
 ]
 
+const LOADING_3D_MESSAGES = [
+  "🔨 Forging 3D geometry...",
+  "📐 Calculating vertices and faces...",
+  "🎯 Sculpting the model...",
+  "✨ Rendering mesh topology...",
+  "🔧 Building polygons...",
+  "🌐 Generating 3D structure...",
+  "💫 Creating depth and volume...",
+  "🎨 Applying textures and materials...",
+]
+
 const TIPS = [
   "💡 Tip: Be specific about materials for better results",
   "💡 Tip: Try different realism modes for unique styles",
   "💡 Tip: Combine multiple gemstones for exotic designs",
   "💡 Tip: Use the refine button to iterate on designs you like",
   "💡 Tip: Save your favorite designs to compare later",
+]
+
+const TIPS_3D = [
+  "💡 Tip: 3D models are perfect for 3D printing jewelry prototypes",
+  "💡 Tip: GLB format works best for web viewing and AR",
+  "💡 Tip: You can import the model into Blender for editing",
+  "💡 Tip: Use the 3D model for manufacturing and CAD workflows",
+  "💡 Tip: Share your 3D models on platforms like Sketchfab",
 ]
 
 const TEMPLATE_PROMPTS: Record<string, string[]> = {
@@ -130,6 +149,11 @@ export default function DesignerPage() {
   const [loadingMessage, setLoadingMessage] = useState(LOADING_MESSAGES[0])
   const [currentTip, setCurrentTip] = useState(TIPS[0])
   const [progress, setProgress] = useState(0)
+
+  // 3D Loading animation state
+  const [loading3DMessage, setLoading3DMessage] = useState(LOADING_3D_MESSAGES[0])
+  const [current3DTip, setCurrent3DTip] = useState(TIPS_3D[0])
+  const [progress3D, setProgress3D] = useState(0)
 
   // 3D Model state
   const [model3D, setModel3D] = useState<Model3DResult | null>(null)
@@ -200,6 +224,36 @@ export default function DesignerPage() {
       setProgress(100)
     }
   }, [generateMutation.isPending])
+
+  // Rotate 3D loading messages and tips
+  useEffect(() => {
+    if (generate3DMutation.isPending) {
+      const messageInterval = setInterval(() => {
+        setLoading3DMessage(LOADING_3D_MESSAGES[Math.floor(Math.random() * LOADING_3D_MESSAGES.length)])
+      }, 2500)
+
+      const tipInterval = setInterval(() => {
+        setCurrent3DTip(TIPS_3D[Math.floor(Math.random() * TIPS_3D.length)])
+      }, 5000)
+
+      // Simulate progress for 3D generation (slower)
+      setProgress3D(0)
+      const progressInterval = setInterval(() => {
+        setProgress3D(prev => {
+          if (prev >= 85) return prev
+          return prev + Math.random() * 8
+        })
+      }, 800)
+
+      return () => {
+        clearInterval(messageInterval)
+        clearInterval(tipInterval)
+        clearInterval(progressInterval)
+      }
+    } else {
+      setProgress3D(100)
+    }
+  }, [generate3DMutation.isPending])
 
   const handleGenerate = () => {
     if (!prompt.trim()) {
@@ -623,9 +677,19 @@ export default function DesignerPage() {
                         onClick={() => generate3DMutation.mutate(result.images[0].url)}
                         isLoading={generate3DMutation.isPending}
                         disabled={generate3DMutation.isPending}
+                        className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
                       >
-                        <Box className="mr-2 h-4 w-4" />
-                        {generate3DMutation.isPending ? 'Generating 3D...' : 'Generate 3D Model'}
+                        {generate3DMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Generating 3D...
+                          </>
+                        ) : (
+                          <>
+                            <Box className="mr-2 h-4 w-4" />
+                            Generate 3D Model
+                          </>
+                        )}
                       </Button>
                     </div>
                   </CardContent>
@@ -680,6 +744,75 @@ export default function DesignerPage() {
           </div>
         </div>
       </div>
+
+      {/* 3D Generation Loading Modal */}
+      {generate3DMutation.isPending && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <Card className="max-w-2xl w-full">
+            <CardContent className="p-8">
+              <div className="flex flex-col items-center justify-center space-y-6">
+                {/* Animated 3D Box */}
+                <div className="relative">
+                  <div className="absolute -inset-4 animate-pulse">
+                    <Box className="h-24 w-24 text-purple-200" />
+                  </div>
+                  <Box className="relative h-16 w-16 animate-bounce text-purple-600" style={{ animationDuration: '1.5s' }} />
+                </div>
+
+                {/* Loading Message */}
+                <h3 className="text-2xl font-bold text-gray-900 animate-pulse">
+                  {loading3DMessage}
+                </h3>
+
+                {/* Progress Bar */}
+                <div className="w-full max-w-md">
+                  <div className="h-3 overflow-hidden rounded-full bg-gray-200">
+                    <div
+                      className="h-full bg-gradient-to-r from-purple-500 via-indigo-500 to-purple-600 transition-all duration-500 ease-out animate-pulse"
+                      style={{ width: `${progress3D}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-center text-sm text-gray-600">
+                    {Math.round(progress3D)}% - This may take 1-3 minutes
+                  </p>
+                </div>
+
+                {/* Tip */}
+                <div className="rounded-lg bg-purple-50 p-4 text-center border border-purple-200">
+                  <p className="text-sm text-purple-900">{current3DTip}</p>
+                </div>
+
+                {/* Animated Process Steps */}
+                <div className="flex gap-4">
+                  {[
+                    { icon: '📤', label: 'Upload' },
+                    { icon: '🔨', label: 'Process' },
+                    { icon: '🎨', label: 'Render' },
+                    { icon: '📥', label: 'Download' }
+                  ].map((step, i) => (
+                    <div
+                      key={i}
+                      className="flex flex-col items-center space-y-1"
+                      style={{
+                        animation: `pulse 2s ease-in-out ${i * 0.3}s infinite`
+                      }}
+                    >
+                      <div className="text-3xl">{step.icon}</div>
+                      <div className="text-xs text-gray-600">{step.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Info */}
+                <div className="text-center text-sm text-gray-500">
+                  <p>Creating high-quality 3D geometry...</p>
+                  <p className="text-xs mt-1">Powered by Tripo3D AI</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* 3D Model Modal */}
       {show3DModal && model3D && (

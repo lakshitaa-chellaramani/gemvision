@@ -64,8 +64,8 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 3600
 
     class Config:
-        # Look for .env file in the backend directory
-        env_file = str(Path(__file__).parent.parent / ".env")
+        # Look for .env file in the project root directory
+        env_file = str(Path(__file__).parent.parent.parent / ".env")
         case_sensitive = False
         extra = "ignore"  # Ignore extra fields in .env file
 

@@ -68,7 +68,7 @@ class Model3DService:
             logger.error(f"Error uploading image to Tripo: {e}")
             raise
 
-    async def _create_task(self, image_token: str, mode: str = "image-to-model") -> str:
+    async def _create_task(self, image_token: str, mode: str = "image_to_model") -> str:
         """
         Create a 3D generation task
 
@@ -257,11 +257,16 @@ class Model3DService:
             # Step 4: Get model URL
             output = task_result.get("output", {})
 
-            # Try to get the requested format, fallback to GLB
-            model_url = output.get(f"model_{export_format}") or output.get("model") or output.get("model_glb")
+            # Log the output for debugging
+            logger.info(f"Task output: {output}")
+
+            # Try to get the requested format - Tripo returns "pbr_model" (GLB URL) and "rendered_image" fields
+            model_url = output.get("pbr_model") or output.get("model")
 
             if not model_url:
-                raise Exception("No model URL found in task result")
+                logger.error(f"No model URL found. Available keys: {list(output.keys())}")
+                logger.error(f"Full task result: {task_result}")
+                raise Exception(f"No model URL found in task result. Available fields: {list(output.keys())}")
 
             # Step 5: Download model
             logger.info(f"Downloading {export_format.upper()} model...")

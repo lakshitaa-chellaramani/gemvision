@@ -132,7 +132,7 @@ class AIDesignerService:
 
             for i in range(num_images):
                 # Request base64 encoded image instead of URL
-                response = openai.images.generate(
+                response = openai_client.images.generate(
                     model=self.default_model,
                     prompt=prompt,
                     size=size,
