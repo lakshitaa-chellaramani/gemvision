@@ -244,18 +244,43 @@ export default function DesignerPage() {
     })
   }
 
-  const handleDownload = (imageUrl: string, index: number) => {
-    // Due to CORS restrictions on DALL-E images, we open in a new tab
-    // The download attribute will trigger download if CORS allows, otherwise opens for viewing
-    const a = document.createElement('a')
-    a.href = imageUrl
-    a.target = '_blank'
-    a.rel = 'noopener noreferrer'
-    a.download = `gemvision-design-${result?.design_id || 'unknown'}-${index + 1}.png`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    toast.success('Image opened in new tab! 📥')
+  const handleDownload = async (imageUrl: string, index: number) => {
+    try {
+      // Try to fetch with CORS mode
+      const response = await fetch(imageUrl, { mode: 'cors' })
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch image')
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `gemvision-design-${result?.design_id || 'unknown'}-${index + 1}.png`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      toast.success('Image downloaded! 📥')
+    } catch (error) {
+      // Fallback: Try direct download link (works if same-origin or CORS headers allow)
+      try {
+        const a = document.createElement('a')
+        a.href = imageUrl
+        a.download = `gemvision-design-${result?.design_id || 'unknown'}-${index + 1}.png`
+        a.target = '_blank'
+        a.rel = 'noopener noreferrer'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        toast.success('Opening image in new tab... Right-click to save! 📥')
+      } catch (fallbackError) {
+        // Final fallback: Open in new tab
+        window.open(imageUrl, '_blank')
+        // toast.info('Image opened in new tab. Right-click to save! 🖼️')
+      }
+    }
   }
 
   const handleShare = async () => {
@@ -318,7 +343,7 @@ export default function DesignerPage() {
               <h1 className="text-2xl font-bold text-gray-900">AI Jewellery Designer</h1>
             </div>
             <div className="text-sm text-gray-600">
-              Create stunning jewellery designs with AI
+              Create stunning designs with AI • Then try them on virtually
             </div>
           </div>
         </div>
@@ -547,6 +572,18 @@ export default function DesignerPage() {
 
                     {/* Action Buttons */}
                     <div className="mt-4 flex flex-wrap gap-2">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => {
+                          // Navigate to try-on page with design
+                          window.location.href = `/tryon?design=${result.design_id}`
+                        }}
+                        className="bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800"
+                      >
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        Try It On
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"

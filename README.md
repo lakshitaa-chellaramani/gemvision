@@ -145,7 +145,7 @@ cp .env.example .env
 cd backend
 
 # Create virtual environment
-python -m venv venv
+python3 -m venv venv
 
 # Activate virtual environment
 # On Windows:

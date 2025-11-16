@@ -1,6 +1,6 @@
 """
 Virtual Try-On Router
-Endpoints for virtual try-on functionality
+Endpoints for virtual try-on functionality with AI-powered Veo 2 integration
 """
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel, Field
@@ -8,10 +8,12 @@ from typing import Optional, Dict
 from sqlalchemy.orm import Session
 from backend.models.database import get_db, TryOn, Design
 from backend.services.s3_service import s3_service
+from backend.services.virtual_tryon_service import virtual_tryon_service
 from PIL import Image, ImageDraw
 import io
 import logging
 import json
+import base64
 
 logger = logging.getLogger(__name__)
 
@@ -370,3 +372,257 @@ async def delete_tryon(tryon_id: int, db: Session = Depends(get_db)):
 
 # Import settings
 from backend.app.config import settings
+
+
+# ============================================================================
+# AI-POWERED VIRTUAL TRY-ON ENDPOINTS (Gemini Imagen 3 - Banana)
+# ============================================================================
+
+class GenerateTryOnRequest(BaseModel):
+    """Request for AI-powered virtual try-on"""
+    jewelry_type: str = Field(..., description="Type: ring, bracelet, necklace, earring")
+    jewelry_description: str = Field(..., description="Description of the jewelry")
+    target_area: str = Field(default="ring finger", description="Placement area")
+    use_examples: bool = Field(default=True, description="Use few-shot learning")
+    design_id: Optional[int] = None
+
+
+@router.post("/generate-ai-tryon")
+async def generate_ai_tryon(
+    body_photo: UploadFile = File(..., description="Photo of body part (hand, neck, full body, etc.)"),
+    jewelry_photo: UploadFile = File(...),
+    jewelry_type: str = Form(..., description="ring, bracelet, necklace, or earring"),
+    jewelry_description: str = Form(...),
+    target_area: Optional[str] = Form(None, description="Optional - will auto-detect if not provided"),
+    use_examples: bool = Form(True),
+    auto_detect: bool = Form(True, description="Automatically detect body part and placement"),
+    design_id: Optional[int] = Form(None)
+):
+    """
+    Generate AI-powered virtual try-on using Gemini Imagen 3 (Banana) with AUTO-DETECTION
+
+    This endpoint intelligently handles ANY body photo:
+    - Upload a HAND photo → Places ring/bracelet automatically
+    - Upload a NECK photo → Places necklace automatically
+    - Upload FULL BODY → Detects appropriate area for jewelry
+    - Upload EAR photo → Places earring automatically
+
+    Features:
+    1. Auto-detects body part in the uploaded photo
+    2. Determines best placement area for the jewelry type
+    3. Uses Gemini Imagen 3 (Banana) for intelligent analysis and image generation
+    4. Optionally uses example pairs for few-shot learning
+    5. Generates photorealistic try-on images with AI compositing
+
+    Upload example pairs to backend/assets/tryon_examples/ for better results!
+    """
+    try:
+        # Validate file types
+        for file in [body_photo, jewelry_photo]:
+            if not file.content_type or not file.content_type.startswith("image/"):
+                raise HTTPException(status_code=400, detail=f"{file.filename} must be an image")
+
+        # Read and validate images
+        body_contents = await body_photo.read()
+        jewelry_contents = await jewelry_photo.read()
+
+        try:
+            body_image = Image.open(io.BytesIO(body_contents)).convert("RGB")
+            jewelry_image = Image.open(io.BytesIO(jewelry_contents)).convert("RGBA")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid image file: {e}")
+
+        # Resize if too large (for API limits)
+        max_size = 2048
+        for img_name, img in [("body", body_image), ("jewelry", jewelry_image)]:
+            if max(img.size) > max_size:
+                ratio = max_size / max(img.size)
+                new_size = tuple(int(dim * ratio) for dim in img.size)
+                if img_name == "body":
+                    body_image = img.resize(new_size, Image.Resampling.LANCZOS)
+                else:
+                    jewelry_image = img.resize(new_size, Image.Resampling.LANCZOS)
+
+        if auto_detect:
+            logger.info(f"Generating AI try-on for {jewelry_type} with AUTO-DETECTION")
+        else:
+            logger.info(f"Generating AI try-on for {jewelry_type} on {target_area}")
+
+        # Generate try-on using Veo 2 with auto-detection
+        result = await virtual_tryon_service.generate_tryon(
+            body_image=body_image,
+            jewelry_image=jewelry_image,
+            jewelry_type=jewelry_type,
+            jewelry_description=jewelry_description,
+            target_area=target_area,
+            use_examples=use_examples,
+            auto_detect=auto_detect
+        )
+
+        logger.info(f"AI try-on generated successfully")
+
+        # Build response
+        response = {
+            "success": True,
+            **result,
+            "design_id": design_id,
+            "auto_detection_used": auto_detect and target_area is None
+        }
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating AI try-on: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CompositeTryOnRequest(BaseModel):
+    """Request to composite jewelry onto hand photo"""
+    placement_data: Dict = Field(..., description="Placement instructions from AI analysis")
+
+
+@router.post("/composite-tryon")
+async def composite_tryon(
+    body_photo: UploadFile = File(..., description="Photo of any body part"),
+    jewelry_photo: UploadFile = File(...),
+    placement_json: str = Form(...),
+    save_to_db: bool = Form(False),
+    user_id: int = Form(1),
+    design_id: Optional[int] = Form(None)
+):
+    """
+    Composite jewelry onto body photo using AI-generated placement instructions
+
+    Works with any body part photo (hand, neck, full body, ear, etc.)
+    Takes the placement analysis from generate-ai-tryon and creates the final image
+    """
+    try:
+        # Parse placement data
+        placement_data = json.loads(placement_json)
+
+        # Read images
+        body_contents = await body_photo.read()
+        jewelry_contents = await jewelry_photo.read()
+
+        body_image = Image.open(io.BytesIO(body_contents)).convert("RGB")
+        jewelry_image = Image.open(io.BytesIO(jewelry_contents)).convert("RGBA")
+
+        logger.info("Compositing jewelry onto body photo...")
+
+        # Composite using the service
+        result_image = await virtual_tryon_service.composite_jewelry(
+            hand_image=body_image,
+            jewelry_image=jewelry_image,
+            placement_data=placement_data
+        )
+
+        # Convert to bytes
+        output_buffer = io.BytesIO()
+        result_image.save(output_buffer, format="JPEG", quality=95)
+        output_bytes = output_buffer.getvalue()
+
+        # For local development: save to local storage instead of S3
+        import uuid
+        from pathlib import Path
+        import datetime
+
+        # Create local storage directory
+        storage_dir = Path(__file__).parent.parent / "storage" / "tryon"
+        storage_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate unique filenames
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = str(uuid.uuid4())[:8]
+
+        result_filename = f"result_{timestamp}_{unique_id}.jpg"
+        body_filename = f"body_{timestamp}_{unique_id}.jpg"
+        jewelry_filename = f"jewelry_{timestamp}_{unique_id}.png"
+
+        # Save files locally
+        result_path = storage_dir / result_filename
+        body_path = storage_dir / body_filename
+        jewelry_path = storage_dir / jewelry_filename
+
+        result_image.save(result_path, format="JPEG", quality=95)
+        body_image.save(body_path, format="JPEG", quality=95)
+        jewelry_image.save(jewelry_path, format="PNG")
+
+        # Create URLs for local access
+        result_url = f"/storage/tryon/{result_filename}"
+        body_url = f"/storage/tryon/{body_filename}"
+        jewelry_url = f"/storage/tryon/{jewelry_filename}"
+
+        logger.info(f"Saved images locally: {result_filename}")
+
+        response_data = {
+            "success": True,
+            "result_url": result_url,
+            "body_photo_url": body_url,
+            "jewelry_image_url": jewelry_url,
+            "placement_used": placement_data,
+            "local_storage": True
+        }
+
+        # Save to database if requested
+        if save_to_db:
+            from backend.models.database import SessionLocal
+            db = SessionLocal()
+
+            tryon = TryOn(
+                user_id=user_id,
+                design_id=design_id,
+                hand_photo_url=body_url,
+                overlay_image_url=jewelry_url,
+                overlay_transform=placement_data,
+                finger_type=placement_data.get("target_area", "unknown"),
+                snapshot_url=result_url
+            )
+
+            db.add(tryon)
+            db.commit()
+            db.refresh(tryon)
+            db.close()
+
+            response_data["tryon_id"] = tryon.id
+            logger.info(f"Saved AI try-on to database: {tryon.id}")
+
+        return response_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error compositing try-on: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/examples/status")
+async def get_examples_status():
+    """
+    Check status of example pairs for few-shot learning
+
+    Returns information about loaded examples
+    """
+    try:
+        examples = virtual_tryon_service._load_example_pairs()
+
+        example_list = []
+        for input_img, output_img, description in examples:
+            example_list.append({
+                "description": description,
+                "input_size": f"{input_img.width}x{input_img.height}",
+                "output_size": f"{output_img.width}x{output_img.height}"
+            })
+
+        return {
+            "success": True,
+            "total_examples": len(examples),
+            "examples": example_list,
+            "examples_directory": str(virtual_tryon_service.examples_dir),
+            "message": f"Loaded {len(examples)} example pairs. Add more to improve results!"
+        }
+
+    except Exception as e:
+        logger.error(f"Error checking examples status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
