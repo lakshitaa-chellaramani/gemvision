@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     gemini_api_key: str = ""
+    tripo_api_key: str = ""  # Tripo3D API for 3D model generation
 
     # AWS Settings
     aws_access_key_id: str = ""

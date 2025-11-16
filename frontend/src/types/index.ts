@@ -108,14 +108,19 @@ export interface InspectionResult {
   defects: Defect[]
   defect_count: number
   image_url: string
-  thumbnail_url: string
+  thumbnail_url?: string
   detection_mode: 'simulated' | 'ml'
+  file_type: 'cad' | 'image' | 'pdf'
+  has_cad_file: boolean
+  confidence_note: string
+  confidence_threshold: number
   image_analysis: {
     brightness: number
     contrast: number
     lighting_quality: string
     has_glint: boolean
     resolution: [number, number]
+    file_type?: string
   }
   requires_reshoot: boolean
   lighting_warning: string
@@ -143,4 +148,35 @@ export interface ReworkJob {
   completed_at?: string
   verified_at?: string
   verified_by?: string
+}
+
+// 3D Model Types
+export type Model3DFormat = 'glb' | 'obj' | 'ply' | 'stl'
+
+export interface Model3DStats {
+  vertices: number
+  faces: number
+  is_watertight: boolean
+  volume: number | null
+  surface_area: number
+}
+
+export interface Model3DResult {
+  success: boolean
+  generation_id: string
+  model_url: string
+  thumbnail_url: string
+  format: Model3DFormat
+  mime_type: string
+  file_size: number
+  stats: Model3DStats
+  background_removed: boolean
+  created_at: string
+  error?: string
+}
+
+export interface Generate3DRequest {
+  file: File
+  remove_background?: boolean
+  export_format?: Model3DFormat
 }

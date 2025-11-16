@@ -8,10 +8,11 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Sparkles, Download, Heart, Share2, RefreshCw, Loader2, Wand2, Gem, Palette } from 'lucide-react'
+import { Sparkles, Download, Heart, Share2, RefreshCw, Loader2, Wand2, Gem, Palette, Box, X } from 'lucide-react'
 import Image from 'next/image'
 import toast from 'react-hot-toast'
-import type { GenerateDesignResponse, JewelleryCategory, StylePreset, RealismMode } from '@/types'
+import type { GenerateDesignResponse, JewelleryCategory, StylePreset, RealismMode, Model3DResult } from '@/types'
+import { Model3DViewer } from '@/components/Model3DViewer'
 
 const CATEGORIES: { value: JewelleryCategory; label: string }[] = [
   { value: 'ring', label: 'Ring' },
@@ -130,6 +131,10 @@ export default function DesignerPage() {
   const [currentTip, setCurrentTip] = useState(TIPS[0])
   const [progress, setProgress] = useState(0)
 
+  // 3D Model state
+  const [model3D, setModel3D] = useState<Model3DResult | null>(null)
+  const [show3DModal, setShow3DModal] = useState(false)
+
   // Mutations - must be declared before useEffect
   const generateMutation = useMutation({
     mutationFn: designerAPI.generate,
@@ -148,6 +153,21 @@ export default function DesignerPage() {
     mutationFn: (designId: number) => designerAPI.saveAsIdea(designId, false),
     onSuccess: () => {
       toast.success('Design saved as idea! ❤️')
+    },
+  })
+
+  const generate3DMutation = useMutation({
+    mutationFn: async (imageUrl: string) => {
+      // Pass URL directly to backend - backend will fetch it server-side (avoids CORS)
+      return designerAPI.generate3D(imageUrl, true, 'glb')
+    },
+    onSuccess: (data: Model3DResult) => {
+      setModel3D(data)
+      setShow3DModal(true)
+      toast.success('3D model generated successfully! 🎉')
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || 'Failed to generate 3D model')
     },
   })
 
@@ -224,43 +244,18 @@ export default function DesignerPage() {
     })
   }
 
-  const handleDownload = async (imageUrl: string, index: number) => {
-    try {
-      // Try to fetch with CORS mode
-      const response = await fetch(imageUrl, { mode: 'cors' })
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch image')
-      }
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `gemvision-design-${result?.design_id || 'unknown'}-${index + 1}.png`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-      toast.success('Image downloaded! 📥')
-    } catch (error) {
-      // Fallback: Try direct download link (works if same-origin or CORS headers allow)
-      try {
-        const a = document.createElement('a')
-        a.href = imageUrl
-        a.download = `gemvision-design-${result?.design_id || 'unknown'}-${index + 1}.png`
-        a.target = '_blank'
-        a.rel = 'noopener noreferrer'
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        toast.success('Opening image in new tab... Right-click to save! 📥')
-      } catch (fallbackError) {
-        // Final fallback: Open in new tab
-        window.open(imageUrl, '_blank')
-        toast.info('Image opened in new tab. Right-click to save! 🖼️')
-      }
-    }
+  const handleDownload = (imageUrl: string, index: number) => {
+    // Due to CORS restrictions on DALL-E images, we open in a new tab
+    // The download attribute will trigger download if CORS allows, otherwise opens for viewing
+    const a = document.createElement('a')
+    a.href = imageUrl
+    a.target = '_blank'
+    a.rel = 'noopener noreferrer'
+    a.download = `gemvision-design-${result?.design_id || 'unknown'}-${index + 1}.png`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    toast.success('Image opened in new tab! 📥')
   }
 
   const handleShare = async () => {
@@ -585,6 +580,16 @@ export default function DesignerPage() {
                         <RefreshCw className="mr-2 h-4 w-4" />
                         Refine
                       </Button>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => generate3DMutation.mutate(result.images[0].url)}
+                        isLoading={generate3DMutation.isPending}
+                        disabled={generate3DMutation.isPending}
+                      >
+                        <Box className="mr-2 h-4 w-4" />
+                        {generate3DMutation.isPending ? 'Generating 3D...' : 'Generate 3D Model'}
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -638,6 +643,110 @@ export default function DesignerPage() {
           </div>
         </div>
       </div>
+
+      {/* 3D Model Modal */}
+      {show3DModal && model3D && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <Card className="max-w-2xl w-full max-h-[90vh] overflow-auto">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Box className="h-5 w-5" />
+                  3D Model Generated
+                </CardTitle>
+                <button
+                  onClick={() => setShow3DModal(false)}
+                  className="rounded-full p-1 hover:bg-gray-100"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {/* 3D Model Viewer */}
+                <div className="relative rounded-lg overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
+                  <Model3DViewer
+                    modelUrl={model3D.model_url}
+                    alt="Generated 3D Model"
+                    autoRotate={true}
+                    cameraControls={true}
+                    className="min-h-[400px]"
+                  />
+                </div>
+
+                {/* Model Stats */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <dt className="font-medium text-gray-700">Vertices:</dt>
+                    <dd className="text-gray-900">{model3D.stats.vertices.toLocaleString()}</dd>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <dt className="font-medium text-gray-700">Faces:</dt>
+                    <dd className="text-gray-900">{model3D.stats.faces.toLocaleString()}</dd>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <dt className="font-medium text-gray-700">Format:</dt>
+                    <dd className="text-gray-900 uppercase">{model3D.format}</dd>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <dt className="font-medium text-gray-700">File Size:</dt>
+                    <dd className="text-gray-900">
+                      {(model3D.file_size / 1024 / 1024).toFixed(2)} MB
+                    </dd>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <dt className="font-medium text-gray-700">Watertight:</dt>
+                    <dd className="text-gray-900">
+                      {model3D.stats.is_watertight ? '✓ Yes' : '✗ No'}
+                    </dd>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <dt className="font-medium text-gray-700">Surface Area:</dt>
+                    <dd className="text-gray-900">
+                      {model3D.stats.surface_area.toFixed(2)} units²
+                    </dd>
+                  </div>
+                </div>
+
+                {/* Download Button */}
+                <div className="flex gap-2">
+                  <Button
+                    variant="primary"
+                    className="flex-1"
+                    onClick={() => {
+                      const a = document.createElement('a')
+                      a.href = model3D.model_url
+                      a.download = `gemvision-3d-model-${model3D.generation_id}.${model3D.format}`
+                      a.click()
+                      toast.success('3D model downloaded! 📥')
+                    }}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download {model3D.format.toUpperCase()} Model
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShow3DModal(false)}
+                  >
+                    Close
+                  </Button>
+                </div>
+
+                <div className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">
+                  <p className="font-medium mb-1">💡 How to use your 3D model:</p>
+                  <ul className="list-disc list-inside space-y-1 text-xs">
+                    <li>Import into Blender, Maya, or 3D Studio Max for editing</li>
+                    <li>Use for 3D printing or manufacturing</li>
+                    <li>View in AR/VR applications</li>
+                    <li>Upload to Sketchfab or other 3D sharing platforms</li>
+                  </ul>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

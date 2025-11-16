@@ -1,14 +1,17 @@
 """
 AI Jewellery Designer Router
-Endpoints for text-to-image jewellery generation
+Endpoints for text-to-image jewellery generation and 3D model generation
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from backend.models.database import get_db, Design, User
 from backend.services.ai_designer_service import ai_designer_service
 from backend.services.s3_service import s3_service
+from backend.services.model_3d_service import model_3d_service
+from PIL import Image
+import io
 import logging
 
 logger = logging.getLogger(__name__)
@@ -301,3 +304,128 @@ async def delete_design(design_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error deleting design: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate-3d")
+async def generate_3d_model(
+    file: Optional[UploadFile] = File(default=None, description="2D image file (JPEG, PNG)"),
+    image_url: Optional[str] = Form(default=None, description="URL of image to convert to 3D"),
+    remove_background: bool = Form(default=True, description="Remove background before processing"),
+    export_format: str = Form(default="glb", description="Export format: glb, obj, ply, stl")
+):
+    """
+    Generate 3D model from 2D jewellery image
+
+    This endpoint:
+    1. Accepts either a 2D image upload OR an image URL
+    2. Optionally removes background
+    3. Generates 3D mesh using TripoSR
+    4. Exports to specified format (GLB, OBJ, PLY, STL)
+    5. Returns model data as base64 data URL
+
+    Args:
+        file: Image file to convert to 3D (optional if image_url provided)
+        image_url: URL of image to convert to 3D (optional if file provided)
+        remove_background: Whether to remove background (default: True)
+        export_format: Output format (default: glb)
+
+    Returns:
+        3D model data with metadata
+    """
+    try:
+        # Validate that at least one input method is provided
+        if not file and not image_url:
+            raise HTTPException(
+                status_code=400,
+                detail="Either 'file' or 'image_url' must be provided"
+            )
+
+        # Validate export format
+        supported_formats = model_3d_service.get_supported_formats()
+        if export_format not in supported_formats:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported format: {export_format}. Supported: {', '.join(supported_formats)}"
+            )
+
+        # Load image from file or URL
+        if file:
+            # Validate file type
+            if not file.content_type or not file.content_type.startswith('image/'):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid file type: {file.content_type}. Must be an image."
+                )
+            logger.info(f"Generating 3D model from uploaded file: {file.filename}, format: {export_format}")
+            contents = await file.read()
+            image = Image.open(io.BytesIO(contents))
+        else:
+            # Fetch image from URL (now S3 URLs which are publicly accessible)
+            logger.info(f"Generating 3D model from URL: {image_url}, format: {export_format}")
+            import httpx
+
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                response = await client.get(image_url)
+                if response.status_code != 200:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Failed to fetch image from URL: HTTP {response.status_code}"
+                    )
+                image = Image.open(io.BytesIO(response.content))
+
+        # Generate 3D model
+        result = await model_3d_service.generate_3d_model(
+            image=image,
+            remove_background=remove_background,
+            export_format=export_format
+        )
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "3D generation failed")
+            )
+
+        logger.info(f"3D model generated successfully: {result['generation_id']}")
+
+        return {
+            "success": True,
+            "generation_id": result["generation_id"],
+            "model_url": result["model_url"],
+            "thumbnail_url": result["thumbnail_url"],
+            "format": result["format"],
+            "mime_type": result["mime_type"],
+            "file_size": result["file_size"],
+            "stats": result["stats"],
+            "background_removed": result["background_removed"],
+            "created_at": result["created_at"]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating 3D model: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate 3D model: {str(e)}"
+        )
+
+
+@router.get("/3d-formats")
+async def get_supported_3d_formats():
+    """
+    Get list of supported 3D export formats
+
+    Returns:
+        List of supported format strings
+    """
+    return {
+        "formats": model_3d_service.get_supported_formats(),
+        "recommended": "glb",
+        "descriptions": {
+            "glb": "GL Transmission Format Binary - Best for web viewing",
+            "obj": "Wavefront OBJ - Widely compatible, good for editing",
+            "ply": "Polygon File Format - Good for 3D printing",
+            "stl": "Stereolithography - Standard for 3D printing"
+        }
+    }

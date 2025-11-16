@@ -32,6 +32,7 @@ python-dotenv==1.0.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 requests==2.31.0
+httpx==0.25.2
 aiofiles==23.2.1
 
 # CORS and middleware
@@ -48,3 +49,10 @@ loguru==0.7.2
 
 # Date/time
 python-dateutil==2.8.2
+
+# 3D Model Generation (TripoSR)
+torch==2.1.2
+torchvision==0.16.2
+trimesh==4.0.8
+rembg==2.0.56
+huggingface-hub==0.20.1

@@ -6,11 +6,13 @@ import openai
 from anthropic import Anthropic
 import google.generativeai as genai
 from backend.app.config import settings
+from backend.services.s3_service import s3_service
 from typing import List, Dict, Optional
 import logging
 import uuid
 from datetime import datetime
 import json
+import base64
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +112,7 @@ class AIDesignerService:
         quality: str = "hd"
     ) -> List[Dict]:
         """
-        Generate images using DALL-E
+        Generate images using DALL-E and upload to S3
 
         Args:
             prompt: Enhanced prompt
@@ -119,7 +121,7 @@ class AIDesignerService:
             quality: Image quality
 
         Returns:
-            List of generated image data
+            List of generated image data with S3 URLs
         """
         try:
             # DALL-E 3 only supports 1 image per request
@@ -129,23 +131,41 @@ class AIDesignerService:
             results = []
 
             for i in range(num_images):
+                # Request base64 encoded image instead of URL
                 response = openai.images.generate(
                     model=self.default_model,
                     prompt=prompt,
                     size=size,
                     quality=quality if self.default_model == "dall-e-3" else "standard",
-                    n=1
+                    n=1,
+                    response_format="b64_json"  # Request base64 format
                 )
 
                 for image in response.data:
+                    # Decode base64 image
+                    image_data = base64.b64decode(image.b64_json)
+
+                    # Upload to S3
+                    seed = f"dalle_{uuid.uuid4().hex[:8]}"
+                    filename = f"design_{seed}.png"
+                    s3_url, s3_key = s3_service.upload_image(
+                        image_data=image_data,
+                        folder="designs",
+                        filename=filename,
+                        content_type="image/png"
+                    )
+
+                    logger.info(f"Uploaded image to S3: {s3_url}")
+
                     results.append({
-                        "url": image.url,
+                        "url": s3_url,  # Use S3 URL instead of DALL-E URL
+                        "s3_key": s3_key,
                         "revised_prompt": getattr(image, 'revised_prompt', prompt),
                         "model": self.default_model,
-                        "seed": f"dalle_{uuid.uuid4().hex[:8]}"
+                        "seed": seed
                     })
 
-            logger.info(f"Generated {len(results)} images with DALL-E")
+            logger.info(f"Generated {len(results)} images with DALL-E and uploaded to S3")
             return results
 
         except Exception as e:

@@ -57,51 +57,90 @@ async def inspect_item(
     file: UploadFile = File(...),
     user_id: int = Form(1),
     item_reference: Optional[str] = Form(None),
+    has_cad_file: bool = Form(True),
     force_simulated: bool = Form(False),
     db: Session = Depends(get_db)
 ):
     """
     Inspect jewellery item for defects
 
-    Accepts image upload and performs QC inspection
+    Accepts CAD files (.stl, .step, .obj), images, or PDFs for QC inspection
     """
     try:
-        # Validate file type
-        if not file.content_type or not file.content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="File must be an image")
+        # Determine file type
+        file_extension = file.filename.split('.')[-1].lower() if file.filename else ''
+        content_type = file.content_type or ''
+
+        # Accepted file types
+        cad_extensions = ['stl', 'step', 'stp', 'obj', 'iges', 'igs']
+        image_extensions = ['jpg', 'jpeg', 'png', 'bmp', 'tiff']
+        pdf_extensions = ['pdf']
+
+        is_cad = file_extension in cad_extensions
+        is_image = file_extension in image_extensions or content_type.startswith("image/")
+        is_pdf = file_extension in pdf_extensions or content_type == "application/pdf"
+
+        if not (is_cad or is_image or is_pdf):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type. Accepted: CAD files (.stl, .step, .obj), images (.jpg, .png), PDF"
+            )
 
         # Read file
         contents = await file.read()
 
-        # Validate size
-        max_size = 10 * 1024 * 1024
+        # Validate size (increased for CAD files)
+        max_size = 50 * 1024 * 1024 if is_cad else 10 * 1024 * 1024
         if len(contents) > max_size:
-            raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+            max_mb = max_size // (1024 * 1024)
+            raise HTTPException(status_code=400, detail=f"File too large (max {max_mb}MB)")
 
-        # Validate it's a valid image
-        try:
-            image = Image.open(io.BytesIO(contents))
-            image.verify()
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid image file")
+        # For image files, validate image
+        if is_image:
+            try:
+                image = Image.open(io.BytesIO(contents))
+                image.verify()
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid image file")
 
-        # Upload to S3
-        url, key = s3_service.upload_image(
-            contents,
-            folder="qc/inspections",
-            content_type=file.content_type
-        )
+        # Convert to base64 data URL for immediate display (no S3 upload needed for preview)
+        import base64
 
-        # Create thumbnail
-        thumbnail_url, thumb_key = s3_service.create_thumbnail(
-            contents,
-            max_size=(300, 300),
-            folder="qc/thumbnails"
-        )
+        if is_image:
+            # For images, create base64 data URL
+            base64_data = base64.b64encode(contents).decode('utf-8')
+            url = f"data:{file.content_type};base64,{base64_data}"
+
+            # Create thumbnail
+            try:
+                from PIL import Image
+                import io
+                image = Image.open(io.BytesIO(contents))
+                image.thumbnail((300, 300), Image.Resampling.LANCZOS)
+                thumb_buffer = io.BytesIO()
+                image.save(thumb_buffer, format='PNG')
+                thumb_buffer.seek(0)
+                thumb_base64 = base64.b64encode(thumb_buffer.getvalue()).decode('utf-8')
+                thumbnail_url = f"data:image/png;base64,{thumb_base64}"
+            except Exception as e:
+                logger.warning(f"Failed to create thumbnail: {e}")
+                thumbnail_url = url
+        else:
+            # For CAD/PDF files, still need a placeholder or we could upload to S3 if needed
+            # For now, just use a data URL
+            base64_data = base64.b64encode(contents).decode('utf-8')
+            content_type = file.content_type or 'application/octet-stream'
+            url = f"data:{content_type};base64,{base64_data}"
+            thumbnail_url = None
+
+        # Determine file type for inspection
+        file_type = 'cad' if is_cad else 'pdf' if is_pdf else 'image'
 
         # Perform inspection
-        inspection_result = await qc_inspector_service.inspect_image(
+        inspection_result = await qc_inspector_service.inspect_file(
             contents,
+            file_type=file_type,
+            has_cad_file=has_cad_file,
             force_simulated=force_simulated
         )
 
@@ -133,6 +172,10 @@ async def inspect_item(
             "image_url": url,
             "thumbnail_url": thumbnail_url,
             "detection_mode": inspection_result["detection_mode"],
+            "file_type": inspection_result["file_type"],
+            "has_cad_file": has_cad_file,
+            "confidence_note": inspection_result["confidence_note"],
+            "confidence_threshold": inspection_result["confidence_threshold"],
             "image_analysis": inspection_result["image_analysis"],
             "requires_reshoot": inspection_result["requires_reshoot"],
             "lighting_warning": inspection_result["lighting_warning"],
