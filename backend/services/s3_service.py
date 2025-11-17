@@ -61,15 +61,17 @@ class S3Service:
                 Key=key,
                 Body=image_data,
                 ContentType=content_type
-                # ACL removed - bucket should be configured for public access instead
             )
 
-            # Construct URL (use path-style for buckets with dots in the name)
-            # Path-style: https://s3.region.amazonaws.com/bucket/key
-            url = f"https://s3.{settings.aws_region}.amazonaws.com/{self.bucket}/{key}"
+            # Generate presigned URL for temporary access (24 hours)
+            presigned_url = self.generate_presigned_url(key, expiration=86400)
 
-            logger.info(f"Uploaded image to S3: {url}")
-            return url, key
+            if not presigned_url:
+                # Fallback to direct URL if presigned generation fails
+                presigned_url = f"https://s3.{settings.aws_region}.amazonaws.com/{self.bucket}/{key}"
+
+            logger.info(f"Uploaded image to S3: {key} (presigned URL generated)")
+            return presigned_url, key
 
         except ClientError as e:
             logger.error(f"Error uploading to S3: {e}")
