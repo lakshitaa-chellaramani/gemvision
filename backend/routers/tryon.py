@@ -540,15 +540,11 @@ async def composite_tryon(
             jewelry_description=jewelry_description
         )
 
-        # Extract the generated image from local storage
-        result_image = Image.open(result["local_path"])
-
         logger.info(f"AI try-on generated successfully")
 
         response_data = {
             "success": True,
             "result_url": result["result_url"],
-            "local_url": result["local_url"],
             "s3_url": result.get("s3_url"),
             "model_used": result["model_used"],
             "generation_method": result["generation_method"]
@@ -562,8 +558,8 @@ async def composite_tryon(
             tryon = TryOn(
                 user_id=user_id,
                 design_id=design_id,
-                hand_photo_url=result["local_url"],
-                overlay_image_url=result["local_url"],
+                hand_photo_url=result["result_url"],
+                overlay_image_url=result["result_url"],
                 overlay_transform={},  # No manual transform needed with AI generation
                 finger_type=jewelry_type,
                 snapshot_url=result["result_url"]

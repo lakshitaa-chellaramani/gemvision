@@ -4,6 +4,7 @@ Implements AI-powered jewelry overlay using Gemini's image generation capabiliti
 """
 import google.generativeai as genai
 from backend.app.config import settings
+from backend.services.s3_service import s3_service
 from typing import List, Dict, Optional, Tuple
 import logging
 import base64
@@ -240,68 +241,31 @@ Create a high-quality, professional model-style composite image showing the pers
 
             logger.info(f"✅ Generated image decoded. Size: {generated_image.size}, Mode: {generated_image.mode}")
 
-            # Save the generated image locally
+            # Upload to S3 using s3_service
             import uuid
             import datetime
 
-            logger.info("💾 Saving result to local storage...")
-            storage_dir = Path(__file__).parent.parent / "storage" / "tryon"
-            storage_dir.mkdir(parents=True, exist_ok=True)
-
+            logger.info("☁️  Uploading to S3...")
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             unique_id = str(uuid.uuid4())[:8]
             result_filename = f"tryon_{timestamp}_{unique_id}.png"
-            result_path = storage_dir / result_filename
 
-            generated_image.save(result_path, format="PNG", quality=95)
-            result_url = f"/storage/tryon/{result_filename}"
+            # Upload to S3
+            s3_url, s3_key = s3_service.upload_from_pil(
+                generated_image,
+                folder="tryon",
+                filename=result_filename,
+                format="PNG"
+            )
 
-            logger.info(f"✅ Saved to: {result_path}")
-            logger.info(f"   🌐 URL: {result_url}")
-
-            # Upload to S3 if configured
-            s3_url = None
-            s3_key = None
-
-            if hasattr(settings, 'aws_s3_bucket') and settings.aws_s3_bucket:
-                try:
-                    logger.info("☁️  Uploading to S3...")
-                    import boto3
-
-                    s3_client = boto3.client(
-                        's3',
-                        aws_access_key_id=settings.aws_access_key_id,
-                        aws_secret_access_key=settings.aws_secret_access_key,
-                        region_name=getattr(settings, 'aws_region', 'us-east-1')
-                    )
-
-                    s3_key = f"generated-images/{unique_id}.png"
-
-                    with open(result_path, 'rb') as f:
-                        s3_client.upload_fileobj(
-                            f,
-                            settings.aws_s3_bucket,
-                            s3_key,
-                            ExtraArgs={'ContentType': 'image/png'}
-                        )
-
-                    s3_url = f"https://{settings.aws_s3_bucket}.s3.amazonaws.com/{s3_key}"
-                    logger.info(f"✅ Uploaded to S3: {s3_url}")
-
-                    # Optionally delete local file if S3 upload successful
-                    # os.remove(result_path)
-
-                except Exception as e:
-                    logger.warning(f"⚠️  S3 upload failed: {e}")
-                    # Continue anyway with local file
+            logger.info(f"✅ Uploaded to S3: {s3_url}")
+            logger.info(f"   🔑 S3 Key: {s3_key}")
 
             result = {
                 "success": True,
-                "result_url": s3_url or result_url,
-                "local_url": result_url,
+                "result_url": s3_url,
                 "s3_url": s3_url,
                 "s3_key": s3_key,
-                "local_path": str(result_path),
                 "size": len(image_bytes),
                 "image_size": generated_image.size,
                 "model_used": self.model_name,

@@ -5,7 +5,6 @@ Main application entry point
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from backend.app.config import settings
 from backend.models.database import init_db
 import logging
@@ -151,15 +150,8 @@ app.include_router(tryon.router, prefix="/api/tryon", tags=["Virtual Try-On"])
 app.include_router(qc_inspector.router, prefix="/api/qc", tags=["QC Inspector"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 
-# Mount static files for local storage (development only)
-storage_dir = Path(__file__).parent.parent / "storage"
-storage_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
-
-# Mount uploads directory for AI-generated images
-uploads_dir = Path(__file__).parent.parent.parent / "uploads"
-uploads_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+# Note: Static file mounts removed - now using AWS S3 for all image storage
+# Images are stored in S3 bucket: gemvision-bucket (eu-north-1)
 
 
 if __name__ == "__main__":
