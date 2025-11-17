@@ -12,6 +12,101 @@ export const api = axios.create({
   },
 })
 
+// Add token to requests if available
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// Types
+export interface User {
+  id: number
+  email: string
+  username: string
+  full_name?: string
+  phone?: string
+  is_verified: boolean
+  created_at: string
+}
+
+export interface TrialStatusResponse {
+  trial_status: {
+    ai_designer: {
+      limit: number
+      remaining: number
+      unlimited: boolean
+    }
+    virtual_tryon: {
+      limit: number
+      remaining: number
+      unlimited: boolean
+    }
+    qc_inspector: {
+      limit: number
+      remaining: number
+      unlimited: boolean
+    }
+    '3d_generation': {
+      limit: number
+      remaining: number
+      unlimited: boolean
+    }
+  }
+}
+
+// Auth API
+export const authAPI = {
+  login: async (email: string, password: string) => {
+    const response = await api.post('/api/auth/login', {
+      email,
+      password,
+    })
+    return response.data
+  },
+
+  signup: async (data: {
+    email: string
+    username: string
+    password: string
+    full_name?: string
+    phone?: string
+  }) => {
+    const response = await api.post('/api/auth/signup', data)
+    return response.data
+  },
+
+  logout: () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+  },
+
+  getCurrentUser: async () => {
+    const response = await api.get('/api/auth/me')
+    return response.data
+  },
+
+  getTrialStatus: async () => {
+    const response = await api.get('/api/auth/trial-status')
+    return response.data
+  },
+}
+
+// Waitlist API
+export const waitlistAPI = {
+  join: async () => {
+    const response = await api.post('/api/waitlist/join')
+    return response.data
+  },
+
+  getStatus: async () => {
+    const response = await api.get('/api/waitlist/status')
+    return response.data
+  },
+}
+
 // Designer API
 export const designerAPI = {
   generate: async (data: {
