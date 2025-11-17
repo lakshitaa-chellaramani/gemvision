@@ -67,41 +67,56 @@ async def inspect_item(
     Accepts CAD files (.stl, .step, .obj), images, or PDFs for QC inspection
     """
     try:
+        # Log incoming request
+        logger.info(f"QC Inspect request - Filename: {file.filename}, Content-Type: {file.content_type}, User: {user_id}")
+
+        # Read file content first
+        contents = await file.read()
+
+        logger.info(f"File read successfully - Size: {len(contents)} bytes")
+
+        # Validate size (check with maximum size first)
+        max_size = 50 * 1024 * 1024  # 50MB max for all files
+        if len(contents) > max_size:
+            raise HTTPException(status_code=400, detail=f"File too large (max 50MB)")
+
         # Determine file type
-        file_extension = file.filename.split('.')[-1].lower() if file.filename else ''
+        file_extension = file.filename.split('.')[-1].lower() if file.filename and '.' in file.filename else ''
         content_type = file.content_type or ''
+
+        logger.info(f"File type detection - Extension: '{file_extension}', Content-Type: '{content_type}'")
 
         # Accepted file types
         cad_extensions = ['stl', 'step', 'stp', 'obj', 'iges', 'igs']
-        image_extensions = ['jpg', 'jpeg', 'png', 'bmp', 'tiff']
+        image_extensions = ['jpg', 'jpeg', 'png', 'bmp', 'tiff', 'webp', 'gif']
         pdf_extensions = ['pdf']
 
         is_cad = file_extension in cad_extensions
         is_image = file_extension in image_extensions or content_type.startswith("image/")
         is_pdf = file_extension in pdf_extensions or content_type == "application/pdf"
 
+        # Try to detect as image by actually opening it if not already detected
         if not (is_cad or is_image or is_pdf):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported file type. Accepted: CAD files (.stl, .step, .obj), images (.jpg, .png), PDF"
-            )
-
-        # Read file
-        contents = await file.read()
-
-        # Validate size (increased for CAD files)
-        max_size = 50 * 1024 * 1024 if is_cad else 10 * 1024 * 1024
-        if len(contents) > max_size:
-            max_mb = max_size // (1024 * 1024)
-            raise HTTPException(status_code=400, detail=f"File too large (max {max_mb}MB)")
+            try:
+                test_image = Image.open(io.BytesIO(contents))
+                test_image.verify()
+                is_image = True
+                logger.info(f"Detected as image file through content analysis")
+            except Exception:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported file type. Accepted: CAD files (.stl, .step, .obj), images (.jpg, .png), PDF. Filename: {file.filename}, Content-Type: {content_type}"
+                )
 
         # For image files, validate image
         if is_image:
             try:
-                image = Image.open(io.BytesIO(contents))
-                image.verify()
-            except Exception:
-                raise HTTPException(status_code=400, detail="Invalid image file")
+                test_image = Image.open(io.BytesIO(contents))
+                test_image.verify()
+                logger.info(f"Image validation passed")
+            except Exception as e:
+                logger.error(f"Image validation failed: {str(e)}")
+                raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
 
         # Convert to base64 data URL for immediate display (no S3 upload needed for preview)
         import base64
@@ -113,8 +128,7 @@ async def inspect_item(
 
             # Create thumbnail
             try:
-                from PIL import Image
-                import io
+                # Re-open image from contents (don't reuse test_image after verify())
                 image = Image.open(io.BytesIO(contents))
                 image.thumbnail((300, 300), Image.Resampling.LANCZOS)
                 thumb_buffer = io.BytesIO()
