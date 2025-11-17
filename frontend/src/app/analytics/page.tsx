@@ -1,11 +1,18 @@
 'use client'
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { analyticsAPI } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { TrendingUp, Sparkles, Eye, Shield, BarChart } from 'lucide-react'
+import ProtectedRoute from '@/components/ProtectedRoute'
+import Navbar from '@/components/Navbar'
+import WaitlistModal from '@/components/auth/WaitlistModal'
+import TrialCounter from '@/components/auth/TrialCounter'
 
 export default function AnalyticsPage() {
+  const [showWaitlist, setShowWaitlist] = useState(false)
+
   const { data: dashboard, isLoading: dashboardLoading } = useQuery({
     queryKey: ['dashboard', 30],
     queryFn: () => analyticsAPI.getDashboard(30, 1),
@@ -28,16 +35,12 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="border-b bg-white">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center space-x-2">
-            <TrendingUp className="h-6 w-6 text-primary-600" />
-            <h1 className="text-2xl font-bold text-gray-900">Analytics Dashboard</h1>
-          </div>
-        </div>
-      </header>
+    <ProtectedRoute>
+      <Navbar />
+      <div className="min-h-screen bg-gray-50">
+      <div className="container mx-auto px-4 py-4">
+        <TrialCounter feature="3d_generation" featureName="3D Model Generation" />
+      </div>
 
       <div className="container mx-auto px-4 py-8">
         <div className="space-y-8">
@@ -321,6 +324,13 @@ export default function AnalyticsPage() {
           </Card>
         </div>
       </div>
-    </div>
+      </div>
+
+      <WaitlistModal
+        isOpen={showWaitlist}
+        onClose={() => setShowWaitlist(false)}
+        feature="3D Model Generation"
+      />
+    </ProtectedRoute>
   )
 }

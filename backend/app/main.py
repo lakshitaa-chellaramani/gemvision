@@ -81,12 +81,25 @@ async def startup_event():
     """Initialize application on startup"""
     logger.info("Starting GemVision API...")
 
-    # Initialize database
+    # Initialize SQLite database (for existing features)
     try:
         init_db()
-        logger.info("Database initialized successfully")
+        logger.info("SQLite database initialized successfully")
     except Exception as e:
-        logger.error(f"Error initializing database: {e}")
+        logger.error(f"Error initializing SQLite database: {e}")
+
+    # Initialize MongoDB (for authentication and user management)
+    try:
+        from backend.models.mongodb import get_mongodb, init_admin_user
+        get_mongodb()
+        logger.info("MongoDB initialized successfully")
+
+        # Create admin user if doesn't exist
+        init_admin_user()
+        logger.info("Admin user initialized")
+    except Exception as e:
+        logger.error(f"Error initializing MongoDB: {e}")
+        logger.error("Make sure MongoDB is running and accessible")
 
     logger.info(f"API running on {settings.backend_url}")
 
@@ -125,8 +138,14 @@ async def health_check():
 
 
 # Import and include routers
-from backend.routers import designer, tryon, qc_inspector, analytics
+from backend.routers import designer, tryon, qc_inspector, analytics, auth, waitlist, admin
 
+# Authentication and user management
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(waitlist.router, prefix="/api/waitlist", tags=["Waitlist"])
+app.include_router(admin.router, prefix="/api/admin", tags=["Admin Dashboard"])
+
+# Feature routers
 app.include_router(designer.router, prefix="/api/designer", tags=["AI Designer"])
 app.include_router(tryon.router, prefix="/api/tryon", tags=["Virtual Try-On"])
 app.include_router(qc_inspector.router, prefix="/api/qc", tags=["QC Inspector"])

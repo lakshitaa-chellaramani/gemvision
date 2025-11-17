@@ -4,11 +4,13 @@ Endpoints for quality control inspection
 """
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from backend.models.database import get_db, QCInspection, ReworkJob
+from backend.models.mongodb import TrialUsageModel
 from backend.services.qc_inspector_service import qc_inspector_service
 from backend.services.s3_service import s3_service
+from backend.utils.auth import get_current_verified_user
 from PIL import Image
 import io
 import logging
@@ -55,20 +57,34 @@ class UpdateReworkRequest(BaseModel):
 @router.post("/inspect")
 async def inspect_item(
     file: UploadFile = File(...),
-    user_id: int = Form(1),
     item_reference: Optional[str] = Form(None),
     has_cad_file: bool = Form(True),
     force_simulated: bool = Form(False),
+    current_user: Dict[str, Any] = Depends(get_current_verified_user),
     db: Session = Depends(get_db)
 ):
     """
-    Inspect jewellery item for defects
+    Inspect jewellery item for defects (Requires authentication)
 
     Accepts CAD files (.stl, .step, .obj), images, or PDFs for QC inspection
     """
     try:
+        user_id = current_user["_id"]
+
+        # Check trial limit
+        trial_status = TrialUsageModel.check_trial_limit(user_id, "qc_inspector")
+        if not trial_status["allowed"]:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "trial_limit_reached",
+                    "message": f"You've used all {trial_status['limit']} trials for QC Inspector. Join our waitlist for unlimited access!",
+                    "trial_status": trial_status
+                }
+            )
+
         # Log incoming request
-        logger.info(f"QC Inspect request - Filename: {file.filename}, Content-Type: {file.content_type}, User: {user_id}")
+        logger.info(f"QC Inspect request for user {current_user['username']} - Filename: {file.filename}, Content-Type: {file.content_type}")
 
         # Read file content first
         contents = await file.read()
@@ -174,6 +190,9 @@ async def inspect_item(
         db.add(inspection)
         db.commit()
         db.refresh(inspection)
+
+        # Record trial usage
+        TrialUsageModel.record_usage(user_id, "qc_inspector")
 
         logger.info(f"Inspection completed: {inspection.id} - {inspection_result['status']}")
 

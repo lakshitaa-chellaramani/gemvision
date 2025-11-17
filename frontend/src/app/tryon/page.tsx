@@ -9,6 +9,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Eye, Upload, Download, Share2, RotateCw, Move, ZoomIn, Sparkles, Info, CheckCircle2, Image as ImageIcon } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { TryOnTransform, FingerType } from '@/types'
+import ProtectedRoute from '@/components/ProtectedRoute'
+import Navbar from '@/components/Navbar'
+import WaitlistModal from '@/components/auth/WaitlistModal'
+import TrialCounter from '@/components/auth/TrialCounter'
 
 const FINGER_TYPES: { value: FingerType; label: string }[] = [
   { value: 'index', label: 'Index Finger' },
@@ -30,6 +34,7 @@ export default function TryOnPage() {
   const [designData, setDesignData] = useState<any>(null)
   const [tryOnResult, setTryOnResult] = useState<any>(null)
   const [detectionResult, setDetectionResult] = useState<any>(null)
+  const [showWaitlist, setShowWaitlist] = useState(false)
 
   const [overlayImage, setOverlayImage] = useState<string | null>(null)
   const [transform, setTransform] = useState<TryOnTransform>({
@@ -82,7 +87,13 @@ export default function TryOnPage() {
       console.error('🔴 Error object:', error)
       console.error('📝 Error message:', error.message)
       console.error('📋 Error details:', error)
-      toast.error(error.message || 'Failed to generate try-on')
+      // Check if it's a trial limit error
+      if (error.response?.status === 402) {
+        setShowWaitlist(true)
+        return
+      }
+      // Show friendly generic error
+      toast.error('Oops! Something went wrong. Please try again.')
     },
   })
 
@@ -301,21 +312,12 @@ export default function TryOnPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="border-b bg-white">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex flex-col space-y-2">
-            <div className="flex items-center space-x-2">
-              <Sparkles className="h-6 w-6 text-primary-600" />
-              <h1 className="text-2xl font-bold text-gray-900">AI Virtual Try-On</h1>
-            </div>
-            <div className="text-sm text-gray-600">
-              Upload any photo • Hand, neck, full body, or ear • AI detects automatically
-            </div>
-          </div>
-        </div>
-      </header>
+    <ProtectedRoute>
+      <Navbar />
+      <div className="min-h-screen bg-gray-50">
+      <div className="container mx-auto px-4 py-4">
+        <TrialCounter feature="virtual_tryon" featureName="Virtual Try-On" />
+      </div>
 
       {/* Info Banner */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-200">
@@ -828,6 +830,13 @@ export default function TryOnPage() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+
+      <WaitlistModal
+        isOpen={showWaitlist}
+        onClose={() => setShowWaitlist(false)}
+        feature="Virtual Try-On"
+      />
+    </ProtectedRoute>
   )
 }

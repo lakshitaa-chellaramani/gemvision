@@ -10,6 +10,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Shield, Upload, CheckCircle, XCircle, AlertTriangle, FileText, Box, Image as ImageIcon, Scan } from 'lucide-react'
 import toast from 'react-hot-toast'
 import type { InspectionResult, Defect, QCDecision } from '@/types'
+import ProtectedRoute from '@/components/ProtectedRoute'
+import Navbar from '@/components/Navbar'
+import WaitlistModal from '@/components/auth/WaitlistModal'
+import TrialCounter from '@/components/auth/TrialCounter'
 
 const SEVERITY_COLORS = {
   low: 'bg-yellow-100 text-yellow-800 border-yellow-200',
@@ -50,6 +54,7 @@ export default function QCPage() {
   const [showReworkForm, setShowReworkForm] = useState(false)
   const imageRef = useRef<HTMLImageElement>(null)
   const [imageScale, setImageScale] = useState({ scaleX: 1, scaleY: 1 })
+  const [showWaitlist, setShowWaitlist] = useState(false)
 
   // Loading animation states
   const [scanMessage, setScanMessage] = useState(SCAN_MESSAGES[0])
@@ -66,7 +71,13 @@ export default function QCPage() {
     },
     onError: (error: any) => {
       setScanProgress(0)
-      toast.error(error.response?.data?.detail || 'Inspection failed')
+      // Check if it's a trial limit error
+      if (error.response?.status === 402) {
+        setShowWaitlist(true)
+        return
+      }
+      // Show friendly generic error
+      toast.error('Oops! Something went wrong. Please try again.')
     },
   })
 
@@ -191,21 +202,12 @@ export default function QCPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Header */}
-      <header className="border-b bg-white shadow-sm">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Shield className="h-6 w-6 text-green-600" />
-              <h1 className="text-2xl font-bold text-gray-900">AI Quality Inspector</h1>
-            </div>
-            <div className="text-sm text-gray-600">
-              Intelligent defect detection with AI
-            </div>
-          </div>
-        </div>
-      </header>
+    <ProtectedRoute>
+      <Navbar />
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="container mx-auto px-4 py-4">
+        <TrialCounter feature="qc_inspector" featureName="QC Inspector" />
+      </div>
 
       <div className="container mx-auto px-4 py-8">
         <div className="grid gap-8 lg:grid-cols-3">
@@ -765,6 +767,13 @@ export default function QCPage() {
           animation: float 4s ease-in-out infinite;
         }
       `}</style>
-    </div>
+      </div>
+
+      <WaitlistModal
+        isOpen={showWaitlist}
+        onClose={() => setShowWaitlist(false)}
+        feature="QC Inspector"
+      />
+    </ProtectedRoute>
   )
 }

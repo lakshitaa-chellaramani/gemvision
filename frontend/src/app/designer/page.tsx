@@ -13,6 +13,10 @@ import Image from 'next/image'
 import toast from 'react-hot-toast'
 import type { GenerateDesignResponse, JewelleryCategory, StylePreset, RealismMode, Model3DResult } from '@/types'
 import { Model3DViewer } from '@/components/Model3DViewer'
+import ProtectedRoute from '@/components/ProtectedRoute'
+import Navbar from '@/components/Navbar'
+import WaitlistModal from '@/components/auth/WaitlistModal'
+import TrialCounter from '@/components/auth/TrialCounter'
 
 const CATEGORIES: { value: JewelleryCategory; label: string }[] = [
   { value: 'ring', label: 'Ring' },
@@ -137,6 +141,7 @@ export default function DesignerPage() {
   const [stylePreset, setStylePreset] = useState<StylePreset>('bridal')
   const [realismMode, setRealismMode] = useState<RealismMode>('realistic')
   const [result, setResult] = useState<GenerateDesignResponse | null>(null)
+  const [showWaitlist, setShowWaitlist] = useState(false)
 
   // Advanced options
   const [metalType, setMetalType] = useState('white-gold')
@@ -169,7 +174,13 @@ export default function DesignerPage() {
     },
     onError: (error: any) => {
       setProgress(0)
-      toast.error(error.response?.data?.detail || 'Failed to generate design')
+      // Check if it's a trial limit error
+      if (error.response?.status === 402) {
+        setShowWaitlist(true)
+        return
+      }
+      // Show friendly generic error
+      toast.error('Oops! Something went wrong. Please try again.')
     },
   })
 
@@ -191,7 +202,13 @@ export default function DesignerPage() {
       toast.success('3D model generated successfully! 🎉')
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to generate 3D model')
+      // Check if it's a trial limit error
+      if (error.response?.status === 402) {
+        setShowWaitlist(true)
+        return
+      }
+      // Show friendly generic error
+      toast.error('Oops! Something went wrong. Please try again.')
     },
   })
 
@@ -387,21 +404,12 @@ export default function DesignerPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Header */}
-      <header className="border-b bg-white shadow-sm">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Sparkles className="h-6 w-6 text-primary-600" />
-              <h1 className="text-2xl font-bold text-gray-900">AI Jewellery Designer</h1>
-            </div>
-            <div className="text-sm text-gray-600">
-              Create stunning designs with AI • Then try them on virtually
-            </div>
-          </div>
-        </div>
-      </header>
+    <ProtectedRoute>
+      <Navbar />
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="container mx-auto px-4 py-4">
+        <TrialCounter feature="ai_designer" featureName="AI Jewelry Designer" />
+      </div>
 
       <div className="container mx-auto px-4 py-8">
         <div className="grid gap-8 lg:grid-cols-3">
@@ -917,6 +925,13 @@ export default function DesignerPage() {
           </Card>
         </div>
       )}
-    </div>
+      </div>
+
+      <WaitlistModal
+        isOpen={showWaitlist}
+        onClose={() => setShowWaitlist(false)}
+        feature="AI Jewelry Designer"
+      />
+    </ProtectedRoute>
   )
 }

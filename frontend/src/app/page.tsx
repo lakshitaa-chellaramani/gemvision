@@ -5,11 +5,12 @@ import { Sparkles, Eye, Shield, TrendingUp, Gem } from 'lucide-react'
 import { motion, useInView } from 'framer-motion'
 import { useRef } from 'react'
 import dynamic from 'next/dynamic'
+import { useAuth } from '@/contexts/AuthContext'
 
 const ModelViewer = dynamic(() => import('./ModelViewer'), { ssr: false })
 
 // Scroll Reveal Card Component
-function ScrollRevealCard() {
+function ScrollRevealCard({ isLoggedIn }: { isLoggedIn: boolean }) {
   const ref = useRef(null)
   const isInView = useInView(ref, { once: true, margin: '-100px' })
 
@@ -33,7 +34,7 @@ function ScrollRevealCard() {
                   <p className="text-gray-500 text-sm">Unlock the full potential</p>
                 </div>
               </div>
-              
+
               <div className="grid md:grid-cols-2 gap-6 mb-8">
                 <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
                   <Sparkles className="h-6 w-6 text-primary-600 mb-3" />
@@ -64,19 +65,13 @@ function ScrollRevealCard() {
                   </p>
                 </div>
               </div>
-              
+
               <div className="flex flex-wrap gap-4">
                 <Link
-                  href="/designer"
+                  href={isLoggedIn ? "/designer" : "/signup"}
                   className="px-6 py-3 rounded-lg bg-primary-600 text-white font-semibold hover:bg-primary-700 transition-all"
                 >
-                  Start Creating
-                </Link>
-                <Link
-                  href="/demo"
-                  className="px-6 py-3 rounded-lg border border-gray-300 text-gray-700 font-semibold hover:border-primary-600 hover:text-primary-600 transition-all"
-                >
-                  View Demo
+                  {isLoggedIn ? "Go to Designer" : "Start Creating"}
                 </Link>
               </div>
             </div>
@@ -88,6 +83,8 @@ function ScrollRevealCard() {
 }
 
 export default function HomePage() {
+  const { user } = useAuth()
+
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
@@ -105,26 +102,43 @@ export default function HomePage() {
                 GemVision
               </h1>
             </Link>
-            <nav className="hidden md:flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm shadow-sm">
-              <Link href="/designer" className="px-3 py-1 rounded-full text-gray-600 hover:text-primary-600 hover:bg-gray-50 transition-colors">
-                Designer
-              </Link>
-              <Link href="/tryon" className="px-3 py-1 rounded-full text-gray-600 hover:text-primary-600 hover:bg-gray-50 transition-colors">
-                Try-On
-              </Link>
-              <Link href="/qc" className="px-3 py-1 rounded-full text-gray-600 hover:text-primary-600 hover:bg-gray-50 transition-colors">
-                QC
-              </Link>
-              <Link href="/analytics" className="px-3 py-1 rounded-full text-gray-600 hover:text-primary-600 hover:bg-gray-50 transition-colors">
-                Analytics
-              </Link>
-              <Link
-                href="/designer"
-                className="ml-2 rounded-full bg-primary-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-primary-700 transition-colors"
-              >
-                Start
-              </Link>
-            </nav>
+            {user ? (
+              <nav className="hidden md:flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm shadow-sm">
+                <Link href="/designer" className="px-3 py-1 rounded-full text-gray-600 hover:text-primary-600 hover:bg-gray-50 transition-colors">
+                  Designer
+                </Link>
+                <Link href="/tryon" className="px-3 py-1 rounded-full text-gray-600 hover:text-primary-600 hover:bg-gray-50 transition-colors">
+                  Try-On
+                </Link>
+                <Link href="/qc" className="px-3 py-1 rounded-full text-gray-600 hover:text-primary-600 hover:bg-gray-50 transition-colors">
+                  QC
+                </Link>
+                <Link href="/analytics" className="px-3 py-1 rounded-full text-gray-600 hover:text-primary-600 hover:bg-gray-50 transition-colors">
+                  Analytics
+                </Link>
+                <Link
+                  href="/designer"
+                  className="ml-2 rounded-full bg-primary-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-primary-700 transition-colors"
+                >
+                  Dashboard
+                </Link>
+              </nav>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/login"
+                  className="hidden md:inline-block px-4 py-2 text-sm font-medium text-gray-700 hover:text-primary-600 transition-colors"
+                >
+                  Sign In
+                </Link>
+                <Link
+                  href="/signup"
+                  className="rounded-full bg-primary-600 px-6 py-2 text-sm font-semibold text-white hover:bg-primary-700 transition-colors"
+                >
+                  Get Started Free
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -165,10 +179,10 @@ export default function HomePage() {
               className="flex justify-center md:justify-start"
             >
               <Link
-                href="/designer"
+                href={user ? "/designer" : "/signup"}
                 className="rounded-lg bg-primary-600 px-10 py-4 text-lg font-semibold text-white shadow-md hover:bg-primary-700 transition-all"
               >
-                Start Designing Now
+                {user ? "Go to Designer" : "Start Designing Now"}
               </Link>
             </motion.div>
 
@@ -248,10 +262,10 @@ export default function HomePage() {
                   Our AI-powered platform turns your creative vision into stunning, photorealistic jewelry designs in seconds. Experience the future of jewelry creation.
                 </p>
                 <Link
-                  href="/designer"
+                  href={user ? "/designer" : "/signup"}
                   className="inline-block rounded-lg bg-primary-600 px-8 py-3 text-white font-semibold hover:bg-primary-700 transition-all"
                 >
-                  Get Started →
+                  {user ? "Go to Designer →" : "Get Started →"}
                 </Link>
               </div>
               <div className="grid grid-cols-3 gap-4">
@@ -282,7 +296,7 @@ export default function HomePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1 }}
           >
-            <Link href="/designer" className="card group block h-full hover:shadow-md">
+            <Link href={user ? "/designer" : "/signup"} className="card group block h-full hover:shadow-md">
               <div className="mb-4 inline-block rounded-full bg-primary-50 p-3">
                 <Sparkles className="h-8 w-8 text-primary-600" />
               </div>
@@ -300,7 +314,7 @@ export default function HomePage() {
                 <li>• Save as design ideas</li>
               </ul>
               <div className="mt-6 text-primary-600 group-hover:text-primary-700">
-                Launch Designer →
+                {user ? "Launch Designer →" : "Sign Up to Access →"}
               </div>
             </Link>
           </motion.div>
@@ -311,7 +325,7 @@ export default function HomePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.2 }}
           >
-            <Link href="/tryon" className="card group block h-full hover:shadow-md">
+            <Link href={user ? "/tryon" : "/signup"} className="card group block h-full hover:shadow-md">
               <div className="mb-4 inline-block rounded-full bg-amber-50 p-3">
                 <Eye className="h-8 w-8 text-amber-500" />
               </div>
@@ -329,7 +343,7 @@ export default function HomePage() {
                 <li>• Save and share snapshots</li>
               </ul>
               <div className="mt-6 text-amber-600 group-hover:text-amber-700">
-                Try It Now →
+                {user ? "Try It Now →" : "Sign Up to Access →"}
               </div>
             </Link>
           </motion.div>
@@ -340,7 +354,7 @@ export default function HomePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
           >
-            <Link href="/qc" className="card group block h-full hover:shadow-md">
+            <Link href={user ? "/qc" : "/signup"} className="card group block h-full hover:shadow-md">
               <div className="mb-4 inline-block rounded-full bg-emerald-50 p-3">
                 <Shield className="h-8 w-8 text-emerald-500" />
               </div>
@@ -358,7 +372,7 @@ export default function HomePage() {
                 <li>• Full audit trail</li>
               </ul>
               <div className="mt-6 text-emerald-600 group-hover:text-emerald-700">
-                Start Inspection →
+                {user ? "Start Inspection →" : "Sign Up to Access →"}
               </div>
             </Link>
           </motion.div>
@@ -366,7 +380,7 @@ export default function HomePage() {
       </section>
 
       {/* Scroll-Reveal Card Section */}
-      <ScrollRevealCard />
+      <ScrollRevealCard isLoggedIn={!!user} />
 
       {/* Diamond 3D Model Section */}
       <section className="py-16 bg-white">

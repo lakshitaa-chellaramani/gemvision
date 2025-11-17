@@ -4,11 +4,13 @@ Endpoints for virtual try-on functionality with AI-powered Veo 2 integration
 """
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel, Field
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 from backend.models.database import get_db, TryOn, Design
+from backend.models.mongodb import TrialUsageModel
 from backend.services.s3_service import s3_service
 from backend.services.virtual_tryon_service import virtual_tryon_service
+from backend.utils.auth import get_current_verified_user
 from PIL import Image, ImageDraw
 import io
 import logging
@@ -396,10 +398,11 @@ async def generate_ai_tryon(
     target_area: Optional[str] = Form(None, description="Optional - will auto-detect if not provided"),
     use_examples: bool = Form(True),
     auto_detect: bool = Form(True, description="Automatically detect body part and placement"),
-    design_id: Optional[int] = Form(None)
+    design_id: Optional[int] = Form(None),
+    current_user: Dict[str, Any] = Depends(get_current_verified_user)
 ):
     """
-    Generate AI-powered virtual try-on using Gemini Imagen 3 (Banana) with AUTO-DETECTION
+    Generate AI-powered virtual try-on using Gemini Imagen 3 (Banana) with AUTO-DETECTION (Requires authentication)
 
     This endpoint intelligently handles ANY body photo:
     - Upload a HAND photo → Places ring/bracelet automatically
@@ -408,15 +411,32 @@ async def generate_ai_tryon(
     - Upload EAR photo → Places earring automatically
 
     Features:
-    1. Auto-detects body part in the uploaded photo
-    2. Determines best placement area for the jewelry type
-    3. Uses Gemini Imagen 3 (Banana) for intelligent analysis and image generation
-    4. Optionally uses example pairs for few-shot learning
-    5. Generates photorealistic try-on images with AI compositing
+    1. Checks trial limits
+    2. Auto-detects body part in the uploaded photo
+    3. Determines best placement area for the jewelry type
+    4. Uses Gemini Imagen 3 (Banana) for intelligent analysis and image generation
+    5. Optionally uses example pairs for few-shot learning
+    6. Generates photorealistic try-on images with AI compositing
+    7. Records trial usage
 
     Upload example pairs to backend/assets/tryon_examples/ for better results!
     """
     try:
+        user_id = current_user["_id"]
+
+        # Check trial limit
+        trial_status = TrialUsageModel.check_trial_limit(user_id, "virtual_tryon")
+        if not trial_status["allowed"]:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "trial_limit_reached",
+                    "message": f"You've used all {trial_status['limit']} trials for Virtual Try-On. Join our waitlist for unlimited access!",
+                    "trial_status": trial_status
+                }
+            )
+
+        logger.info(f"Generating AI try-on for user {current_user['username']}: {jewelry_type}")
         # Validate file types
         for file in [body_photo, jewelry_photo]:
             if not file.content_type or not file.content_type.startswith("image/"):
@@ -460,6 +480,9 @@ async def generate_ai_tryon(
         )
 
         logger.info(f"AI try-on generated successfully")
+
+        # Record trial usage
+        TrialUsageModel.record_usage(user_id, "virtual_tryon")
 
         # Build response
         response = {

@@ -4,12 +4,14 @@ Endpoints for text-to-image jewellery generation and 3D model generation
 """
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from backend.models.database import get_db, Design, User
+from backend.models.mongodb import TrialUsageModel
 from backend.services.ai_designer_service import ai_designer_service
 from backend.services.s3_service import s3_service
 from backend.services.model_3d_service import model_3d_service
+from backend.utils.auth import get_current_verified_user
 from PIL import Image
 import io
 import logging
@@ -68,20 +70,37 @@ class SaveIdeaRequest(BaseModel):
 @router.post("/generate", response_model=GenerateDesignResponse)
 async def generate_design(
     request: GenerateDesignRequest,
+    current_user: Dict[str, Any] = Depends(get_current_verified_user),
     db: Session = Depends(get_db)
 ):
     """
-    Generate jewellery design from text prompt
+    Generate jewellery design from text prompt (Requires authentication)
 
     This endpoint:
-    1. Enhances the user's prompt
-    2. Generates images using DALL-E
-    3. Analyzes the design with Claude
-    4. Saves to database
-    5. Returns results with URLs
+    1. Checks trial limits
+    2. Enhances the user's prompt
+    3. Generates images using DALL-E
+    4. Analyzes the design with Claude
+    5. Saves to database
+    6. Records trial usage
+    7. Returns results with URLs
     """
     try:
-        logger.info(f"Generating design: {request.category} - {request.style_preset}")
+        user_id = current_user["_id"]
+
+        # Check trial limit
+        trial_status = TrialUsageModel.check_trial_limit(user_id, "ai_designer")
+        if not trial_status["allowed"]:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "trial_limit_reached",
+                    "message": f"You've used all {trial_status['limit']} trials for AI Designer. Join our waitlist for unlimited access!",
+                    "trial_status": trial_status
+                }
+            )
+
+        logger.info(f"Generating design for user {current_user['username']}: {request.category} - {request.style_preset}")
 
         # Generate design
         result = await ai_designer_service.generate_design(
@@ -91,6 +110,9 @@ async def generate_design(
             realism_mode=request.realism_mode,
             num_images=request.num_images
         )
+
+        # Record trial usage
+        TrialUsageModel.record_usage(user_id, "ai_designer")
 
         # Upload images to S3 (optional, for persistence)
         # For now, we'll use the DALL-E URLs directly
@@ -311,17 +333,20 @@ async def generate_3d_model(
     file: Optional[UploadFile] = File(default=None, description="2D image file (JPEG, PNG)"),
     image_url: Optional[str] = Form(default=None, description="URL of image to convert to 3D"),
     remove_background: bool = Form(default=True, description="Remove background before processing"),
-    export_format: str = Form(default="glb", description="Export format: glb, obj, ply, stl")
+    export_format: str = Form(default="glb", description="Export format: glb, obj, ply, stl"),
+    current_user: Dict[str, Any] = Depends(get_current_verified_user)
 ):
     """
-    Generate 3D model from 2D jewellery image
+    Generate 3D model from 2D jewellery image (Requires authentication)
 
     This endpoint:
-    1. Accepts either a 2D image upload OR an image URL
-    2. Optionally removes background
-    3. Generates 3D mesh using TripoSR
-    4. Exports to specified format (GLB, OBJ, PLY, STL)
-    5. Returns model data as base64 data URL
+    1. Checks trial limits
+    2. Accepts either a 2D image upload OR an image URL
+    3. Optionally removes background
+    4. Generates 3D mesh using TripoSR
+    5. Exports to specified format (GLB, OBJ, PLY, STL)
+    6. Records trial usage
+    7. Returns model data as base64 data URL
 
     Args:
         file: Image file to convert to 3D (optional if image_url provided)
@@ -333,6 +358,22 @@ async def generate_3d_model(
         3D model data with metadata
     """
     try:
+        user_id = current_user["_id"]
+
+        # Check trial limit
+        trial_status = TrialUsageModel.check_trial_limit(user_id, "3d_generation")
+        if not trial_status["allowed"]:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "trial_limit_reached",
+                    "message": f"You've used all {trial_status['limit']} trials for 3D Generation. Join our waitlist for unlimited access!",
+                    "trial_status": trial_status
+                }
+            )
+
+        logger.info(f"Generating 3D model for user {current_user['username']}")
+
         # Validate that at least one input method is provided
         if not file and not image_url:
             raise HTTPException(
@@ -387,6 +428,9 @@ async def generate_3d_model(
             )
 
         logger.info(f"3D model generated successfully: {result['generation_id']}")
+
+        # Record trial usage
+        TrialUsageModel.record_usage(user_id, "3d_generation")
 
         return {
             "success": True,

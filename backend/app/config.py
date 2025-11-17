@@ -3,9 +3,15 @@ GemVision Configuration
 Centralized configuration management using Pydantic Settings
 """
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from typing import List
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env file explicitly before creating Settings
+env_path = Path(__file__).parent.parent.parent / ".env"
+load_dotenv(env_path, override=True)  # Force override existing env vars
 
 
 class Settings(BaseSettings):
@@ -62,6 +68,14 @@ class Settings(BaseSettings):
     # Optional: Redis
     redis_url: str = "redis://localhost:6379"
     cache_ttl_seconds: int = 3600
+
+    # Email/SMTP Settings
+    smtp_host: str = Field(default="smtp.gmail.com", validation_alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, validation_alias="SMTP_PORT")
+    smtp_user: str = Field(default="", validation_alias="SMTP_USER")
+    smtp_password: str = Field(default="", validation_alias="SMTP_PASSWORD")
+    from_email: str = Field(default="", validation_alias="FROM_EMAIL")
+    frontend_url: str = Field(default="http://localhost:3000", validation_alias="FRONTEND_URL")
 
     class Config:
         # Look for .env file in the project root directory
