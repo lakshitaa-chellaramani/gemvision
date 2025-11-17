@@ -6,7 +6,7 @@ from openai import OpenAI
 from anthropic import Anthropic
 import google.generativeai as genai
 from backend.app.config import settings
-from backend.services.s3_service import s3_service
+from backend.services.local_storage_service import local_storage_service
 from typing import List, Dict, Optional
 import logging
 import uuid
@@ -112,7 +112,7 @@ class AIDesignerService:
         quality: str = "hd"
     ) -> List[Dict]:
         """
-        Generate images using DALL-E and upload to S3
+        Generate images using DALL-E and save to local storage
 
         Args:
             prompt: Enhanced prompt
@@ -121,7 +121,7 @@ class AIDesignerService:
             quality: Image quality
 
         Returns:
-            List of generated image data with S3 URLs
+            List of generated image data with local storage URLs
         """
         try:
             # DALL-E 3 only supports 1 image per request
@@ -145,27 +145,27 @@ class AIDesignerService:
                     # Decode base64 image
                     image_data = base64.b64decode(image.b64_json)
 
-                    # Upload to S3
+                    # Save to local storage
                     seed = f"dalle_{uuid.uuid4().hex[:8]}"
                     filename = f"design_{seed}.png"
-                    s3_url, s3_key = s3_service.upload_image(
+                    local_url, local_path = local_storage_service.upload_image(
                         image_data=image_data,
                         folder="designs",
                         filename=filename,
                         content_type="image/png"
                     )
 
-                    logger.info(f"Uploaded image to S3: {s3_url}")
+                    logger.info(f"Saved image to local storage: {local_url}")
 
                     results.append({
-                        "url": s3_url,  # Use S3 URL instead of DALL-E URL
-                        "s3_key": s3_key,
+                        "url": local_url,  # Use local storage URL
+                        "local_path": local_path,
                         "revised_prompt": getattr(image, 'revised_prompt', prompt),
                         "model": self.default_model,
                         "seed": seed
                     })
 
-            logger.info(f"Generated {len(results)} images with DALL-E and uploaded to S3")
+            logger.info(f"Generated {len(results)} images with DALL-E and saved to local storage")
             return results
 
         except Exception as e:

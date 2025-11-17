@@ -137,6 +137,11 @@ storage_dir = Path(__file__).parent.parent / "storage"
 storage_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/storage", StaticFiles(directory=str(storage_dir)), name="storage")
 
+# Mount uploads directory for AI-generated images
+uploads_dir = Path(__file__).parent.parent.parent / "uploads"
+uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+
 
 if __name__ == "__main__":
     import uvicorn
