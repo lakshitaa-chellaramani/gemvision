@@ -6,7 +6,7 @@ from openai import OpenAI
 from anthropic import Anthropic
 import google.generativeai as genai
 from backend.app.config import settings
-from backend.services.local_storage_service import local_storage_service
+from backend.services.s3_service import s3_service
 from typing import List, Dict, Optional
 import logging
 import uuid
@@ -145,27 +145,27 @@ class AIDesignerService:
                     # Decode base64 image
                     image_data = base64.b64decode(image.b64_json)
 
-                    # Save to local storage
+                    # Save to S3
                     seed = f"dalle_{uuid.uuid4().hex[:8]}"
                     filename = f"design_{seed}.png"
-                    local_url, local_path = local_storage_service.upload_image(
+                    s3_url, s3_key = s3_service.upload_image(
                         image_data=image_data,
                         folder="designs",
                         filename=filename,
                         content_type="image/png"
                     )
 
-                    logger.info(f"Saved image to local storage: {local_url}")
+                    logger.info(f"Saved image to S3: {s3_url}")
 
                     results.append({
-                        "url": local_url,  # Use local storage URL
-                        "local_path": local_path,
+                        "url": s3_url,  # Use S3 URL
+                        "s3_key": s3_key,
                         "revised_prompt": getattr(image, 'revised_prompt', prompt),
                         "model": self.default_model,
                         "seed": seed
                     })
 
-            logger.info(f"Generated {len(results)} images with DALL-E and saved to local storage")
+            logger.info(f"Generated {len(results)} images with DALL-E and saved to S3")
             return results
 
         except Exception as e:
