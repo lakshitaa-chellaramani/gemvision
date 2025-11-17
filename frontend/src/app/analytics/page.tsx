@@ -142,15 +142,14 @@ export default function AnalyticsPage() {
                       <div key={category}>
                         <div className="flex items-center justify-between text-sm mb-1">
                           <span className="font-medium capitalize text-gray-700">{category}</span>
-                          <span className="text-gray-900">{count}</span>
+                          <span className="text-gray-900">{String(count)}</span>
                         </div>
                         <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
                           <div
                             className="h-full rounded-full bg-primary-600"
                             style={{
                               width: `${
-                                (count / Math.max(...Object.values(dashboard.designs_by_category))) *
-                                100
+                                (Number(count) / Math.max(...Object.values(dashboard.designs_by_category).map(Number))) * 100
                               }%`,
                             }}
                           />
@@ -179,14 +178,14 @@ export default function AnalyticsPage() {
                           <span className="font-medium capitalize text-gray-700">
                             {style.replace('_', ' ')}
                           </span>
-                          <span className="text-gray-900">{count}</span>
+                          <span className="text-gray-900">{String(count)}</span>
                         </div>
                         <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
                           <div
                             className="h-full rounded-full bg-gold-600"
                             style={{
                               width: `${
-                                (count / Math.max(...Object.values(dashboard.designs_by_style))) *
+                                (Number(count) / Math.max(...Object.values(dashboard.designs_by_style).map(Number))) *
                                 100
                               }%`,
                             }}
@@ -216,7 +215,7 @@ export default function AnalyticsPage() {
                         <span className="text-sm font-medium capitalize text-gray-700">
                           {decision}
                         </span>
-                        <span className="text-2xl font-bold text-gray-900">{count}</span>
+                        <span className="text-2xl font-bold text-gray-900">{String(count)}</span>
                       </div>
                       <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
                         <div
@@ -229,7 +228,7 @@ export default function AnalyticsPage() {
                           }`}
                           style={{
                             width: `${
-                              (count / Object.values(dashboard.qc_decisions).reduce((a, b) => a + b, 0)) *
+                              (Number(count) / Object.values(dashboard.qc_decisions as any[]).reduce((a: number, b: number) => a + b, 0)) *
                               100
                             }%`,
                           }}
@@ -252,7 +251,7 @@ export default function AnalyticsPage() {
             <CardContent>
               {dashboard?.recent_activity && dashboard.recent_activity.length > 0 ? (
                 <div className="space-y-4">
-                  {dashboard.recent_activity.map((activity) => (
+                  {(dashboard.recent_activity as any[]).map((activity: any) => (
                     <div
                       key={activity.id}
                       className="flex items-center space-x-4 rounded-lg border border-gray-200 p-4"
