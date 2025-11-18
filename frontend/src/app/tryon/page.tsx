@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, Suspense } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useSearchParams } from 'next/navigation'
 import { tryonAPI, designerAPI } from '@/lib/api'
@@ -21,7 +21,7 @@ const FINGER_TYPES: { value: FingerType; label: string }[] = [
   { value: 'little', label: 'Little Finger' },
 ]
 
-export default function TryOnPage() {
+function TryOnContent() {
   const searchParams = useSearchParams()
   const designIdParam = searchParams.get('design')
 
@@ -679,5 +679,13 @@ export default function TryOnPage() {
         feature="Virtual Try-On"
       />
     </ProtectedRoute>
+  )
+}
+
+export default function TryOnPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <TryOnContent />
+    </Suspense>
   )
 }
