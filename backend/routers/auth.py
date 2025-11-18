@@ -9,7 +9,7 @@ from datetime import timedelta
 from backend.models.mongodb import UserModel, VerificationTokenModel, TrialUsageModel
 from backend.utils.auth import (
     AuthUtils, EmailService, get_current_user,
-    get_current_verified_user, get_client_info
+    get_current_verified_user, get_admin_user, get_client_info
 )
 from backend.app.config import settings
 import re
@@ -333,4 +333,46 @@ async def check_email_availability(email: str):
     return {
         "available": user is None,
         "email": email
+    }
+
+
+@router.post("/admin/verify-user")
+async def admin_verify_user(
+    email: str,
+    admin_user: dict = Depends(get_admin_user)
+):
+    """
+    Manually verify a user's email (Admin only)
+    Useful for testing or manually approving users
+    """
+    user = UserModel.get_by_email(email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with email {email} not found"
+        )
+
+    if user.get("is_verified"):
+        return {
+            "message": f"User {email} is already verified",
+            "user": {
+                "email": user["email"],
+                "username": user["username"],
+                "is_verified": True
+            }
+        }
+
+    # Update user verification status
+    UserModel.collection.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"is_verified": True}}
+    )
+
+    return {
+        "message": f"Successfully verified user {email}",
+        "user": {
+            "email": user["email"],
+            "username": user["username"],
+            "is_verified": True
+        }
     }
