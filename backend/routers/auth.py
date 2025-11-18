@@ -281,9 +281,10 @@ async def get_current_user_profile(current_user: dict = Depends(get_current_user
 
 
 @router.get("/trial-status")
-async def get_trial_status(current_user: dict = Depends(get_current_verified_user)):
+async def get_trial_status(current_user: dict = Depends(get_current_user)):
     """
     Get user's trial usage status for all features
+    (Does not require email verification - users can see their status before verifying)
     """
     user_id = current_user["_id"]
     features = ["ai_designer", "virtual_tryon", "qc_inspector", "3d_generation"]

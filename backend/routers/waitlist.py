@@ -9,7 +9,7 @@ from typing import Optional
 from datetime import datetime
 from backend.models.mongodb import UserModel, WaitlistModel, TrialUsageModel
 from backend.utils.auth import (
-    get_current_verified_user, get_admin_user, EmailService
+    get_current_user, get_admin_user, EmailService
 )
 import os
 import io
@@ -33,10 +33,11 @@ class WaitlistResponse(BaseModel):
 
 @router.post("/join", response_model=WaitlistResponse)
 async def join_waitlist(
-    current_user: dict = Depends(get_current_verified_user)
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Add current user to waitlist
+    (Does not require email verification - users can join waitlist before verifying)
     """
     user_id = current_user["_id"]
     email = current_user["email"]
@@ -98,10 +99,11 @@ async def join_waitlist(
 
 @router.get("/status")
 async def get_waitlist_status(
-    current_user: dict = Depends(get_current_verified_user)
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Check if current user is on waitlist
+    (Does not require email verification - users can check status before verifying)
     """
     user_id = current_user["_id"]
     in_waitlist = WaitlistModel.is_in_waitlist(user_id)
