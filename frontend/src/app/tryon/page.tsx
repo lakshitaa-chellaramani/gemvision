@@ -146,16 +146,10 @@ function TryOnContent() {
       return
     }
 
-    if (!jewelryDescription.trim()) {
-      console.error('❌ Missing jewelry description')
-      toast.error('Please add a jewelry description')
-      return
-    }
-
     console.log('📸 Body photo:', bodyPhoto.name, `(${(bodyPhoto.size / 1024).toFixed(2)} KB)`)
     console.log('💍 Jewelry photo:', jewelryPhoto.name, `(${(jewelryPhoto.size / 1024).toFixed(2)} KB)`)
     console.log('📋 Jewelry type:', jewelryType)
-    console.log('📝 Description:', jewelryDescription)
+    console.log('📝 Description:', jewelryDescription || '(none provided)')
     console.log('🎯 Auto-detect: enabled')
     console.log('📚 Use examples: enabled')
     console.log('⏳ Sending request to backend...')
@@ -445,7 +439,7 @@ function TryOnContent() {
                     size="md"
                     onClick={handleGenerateAITryOn}
                     className="w-full bg-gradient-to-r from-primary-600 to-primary-700"
-                    disabled={!bodyPhoto || !jewelryPhoto || !jewelryDescription.trim()}
+                    disabled={!bodyPhoto || !jewelryPhoto}
                     isLoading={generateAITryOnMutation.isPending}
                   >
                     <Sparkles className="mr-2 h-4 w-4" />

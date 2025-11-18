@@ -3,7 +3,27 @@
  */
 import axios from 'axios'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+// Use window.location for runtime detection in browser, fallback to env var
+const getApiUrl = () => {
+  if (typeof window !== 'undefined') {
+    // In browser: use current hostname
+    const protocol = window.location.protocol
+    const hostname = window.location.hostname
+
+    // If running on localhost, use localhost backend
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:8000'
+    }
+
+    // Otherwise, use same domain (production)
+    return `${protocol}//${hostname}`
+  }
+
+  // Server-side rendering or build time
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+}
+
+const API_URL = getApiUrl()
 
 export const api = axios.create({
   baseURL: API_URL,
