@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./gemvision.db"
 
     # Application
-    backend_url: str = "http://localhost:8000"
+    backend_url: str = "https://gemvision.ai"
     backend_port: int = 8000
 
     # Security
@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 1440
 
     # CORS
-    allowed_origins: str = "http://localhost:3000,http://localhost:8000"
+    allowed_origins: str = "https://gemvision.ai,http://localhost:3000,http://localhost:8000"
 
     # Image Generation
     default_image_model: str = "dall-e-3"
@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     smtp_user: str = Field(default="", validation_alias="SMTP_USER")
     smtp_password: str = Field(default="", validation_alias="SMTP_PASSWORD")
     from_email: str = Field(default="", validation_alias="FROM_EMAIL")
-    frontend_url: str = Field(default="http://localhost:3000", validation_alias="FRONTEND_URL")
+    frontend_url: str = Field(default="https://gemvision.ai", validation_alias="FRONTEND_URL")
 
     class Config:
         # Look for .env file in the project root directory

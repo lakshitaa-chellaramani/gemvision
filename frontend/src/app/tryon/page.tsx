@@ -14,6 +14,18 @@ import Navbar from '@/components/Navbar'
 import WaitlistModal from '@/components/auth/WaitlistModal'
 import TrialCounter from '@/components/auth/TrialCounter'
 
+// API URL helper - matches same logic as api.ts
+const getApiUrl = () => {
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:8000'
+    }
+    return 'https://gemvision.ai'
+  }
+  return 'https://gemvision.ai'
+}
+
 const FINGER_TYPES: { value: FingerType; label: string }[] = [
   { value: 'index', label: 'Index Finger' },
   { value: 'middle', label: 'Middle Finger' },
@@ -543,7 +555,7 @@ function TryOnContent() {
                         src={
                           tryOnResult.result_url?.startsWith('http')
                             ? tryOnResult.result_url
-                            : `http://localhost:8000${tryOnResult.result_url || tryOnResult.composite_url}`
+                            : `${getApiUrl()}${tryOnResult.result_url || tryOnResult.composite_url}`
                         }
                         alt="AI Try-On Result"
                         className="w-full max-h-[600px] object-contain"
@@ -565,7 +577,7 @@ function TryOnContent() {
                           onClick={() => {
                             const link = document.createElement('a')
                             const url = tryOnResult.result_url || tryOnResult.composite_url
-                            link.href = url?.startsWith('http') ? url : `http://localhost:8000${url}`
+                            link.href = url?.startsWith('http') ? url : `${getApiUrl()}${url}`
                             link.download = 'ai-tryon-result.jpg'
                             link.click()
                             toast.success('Downloaded!')

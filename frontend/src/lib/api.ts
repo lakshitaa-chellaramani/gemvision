@@ -3,11 +3,10 @@
  */
 import axios from 'axios'
 
-// Use window.location for runtime detection in browser, fallback to env var
+// API URL configuration
 const getApiUrl = () => {
   if (typeof window !== 'undefined') {
-    // In browser: use current hostname
-    const protocol = window.location.protocol
+    // In browser: check if localhost or production
     const hostname = window.location.hostname
 
     // If running on localhost, use localhost backend
@@ -15,12 +14,12 @@ const getApiUrl = () => {
       return 'http://localhost:8000'
     }
 
-    // Otherwise, use same domain (production)
-    return `${protocol}//${hostname}`
+    // Production: use gemvision.ai
+    return 'https://gemvision.ai'
   }
 
   // Server-side rendering or build time
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  return process.env.NEXT_PUBLIC_API_URL || 'https://gemvision.ai'
 }
 
 const API_URL = getApiUrl()
