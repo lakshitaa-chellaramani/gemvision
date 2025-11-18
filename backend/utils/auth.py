@@ -265,8 +265,17 @@ async def get_current_user(
 async def get_current_verified_user(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ) -> Dict[str, Any]:
-    """Dependency to get current verified user"""
-    if not current_user.get("is_verified", False):
+    """Dependency to get current verified user
+
+    Note: current_user is already fresh from database (fetched in get_current_user),
+    so this check reflects the latest verification status.
+    """
+    user_id = current_user.get("_id")
+    is_verified = current_user.get("is_verified", False)
+
+    print(f"🔍 Verification check for user {user_id}: is_verified={is_verified}")
+
+    if not is_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Email not verified. Please verify your email to continue."
