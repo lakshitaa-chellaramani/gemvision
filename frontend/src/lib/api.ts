@@ -29,6 +29,7 @@ export interface User {
   full_name?: string
   phone?: string
   is_verified: boolean
+  role?: string
   created_at: string
 }
 
