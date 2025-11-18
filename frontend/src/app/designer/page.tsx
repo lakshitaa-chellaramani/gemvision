@@ -814,7 +814,7 @@ export default function DesignerPage() {
                 {/* Info */}
                 <div className="text-center text-sm text-gray-500">
                   <p>Creating high-quality 3D geometry...</p>
-                  <p className="text-xs mt-1">Powered by Tripo3D AI</p>
+                  {/* <p className="text-xs mt-1">Powered by Tripo3D AI</p> */}
                 </div>
               </div>
             </CardContent>
