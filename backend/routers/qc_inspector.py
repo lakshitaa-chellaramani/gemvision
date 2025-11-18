@@ -10,7 +10,7 @@ from backend.models.database import get_db, QCInspection, ReworkJob
 from backend.models.mongodb import TrialUsageModel
 from backend.services.qc_inspector_service import qc_inspector_service
 from backend.services.s3_service import s3_service
-from backend.utils.auth import get_current_verified_user
+from backend.utils.auth import get_current_user
 from PIL import Image
 import io
 import logging
@@ -60,7 +60,7 @@ async def inspect_item(
     item_reference: Optional[str] = Form(None),
     has_cad_file: bool = Form(True),
     force_simulated: bool = Form(False),
-    current_user: Dict[str, Any] = Depends(get_current_verified_user),
+    current_user: Dict[str, Any] = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """

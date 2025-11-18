@@ -10,7 +10,7 @@ from backend.models.database import get_db, TryOn, Design
 from backend.models.mongodb import TrialUsageModel
 from backend.services.s3_service import s3_service
 from backend.services.virtual_tryon_service import virtual_tryon_service
-from backend.utils.auth import get_current_verified_user
+from backend.utils.auth import get_current_user
 from PIL import Image, ImageDraw
 import io
 import logging
@@ -399,7 +399,7 @@ async def generate_ai_tryon(
     use_examples: bool = Form(True),
     auto_detect: bool = Form(True, description="Automatically detect body part and placement"),
     design_id: Optional[int] = Form(None),
-    current_user: Dict[str, Any] = Depends(get_current_verified_user)
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
     Generate AI-powered virtual try-on using Gemini Imagen 3 (Banana) with AUTO-DETECTION (Requires authentication)

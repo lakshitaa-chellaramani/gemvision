@@ -11,7 +11,7 @@ from backend.models.mongodb import TrialUsageModel
 from backend.services.ai_designer_service import ai_designer_service
 from backend.services.s3_service import s3_service
 from backend.services.model_3d_service import model_3d_service
-from backend.utils.auth import get_current_user
+from backend.utils.auth import get_current_user, get_current_verified_user
 from PIL import Image
 import io
 import logging
