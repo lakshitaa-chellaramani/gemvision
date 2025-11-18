@@ -394,7 +394,7 @@ async def generate_ai_tryon(
     body_photo: UploadFile = File(..., description="Photo of body part (hand, neck, full body, etc.)"),
     jewelry_photo: UploadFile = File(...),
     jewelry_type: str = Form(..., description="ring, bracelet, necklace, or earring"),
-    jewelry_description: str = Form(...),
+    jewelry_description: Optional[str] = Form(None),
     target_area: Optional[str] = Form(None, description="Optional - will auto-detect if not provided"),
     use_examples: bool = Form(True),
     auto_detect: bool = Form(True, description="Automatically detect body part and placement"),
