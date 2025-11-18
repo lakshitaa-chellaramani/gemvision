@@ -61,7 +61,7 @@ export interface TrialStatusResponse {
 // Auth API
 export const authAPI = {
   login: async (email: string, password: string) => {
-    const response = await api.post('/auth/login', {
+    const response = await api.post('/api/auth/login', {
       email,
       password,
     })
@@ -91,6 +91,11 @@ export const authAPI = {
 
   getTrialStatus: async () => {
     const response = await api.get('/api/auth/trial-status')
+    return response.data
+  },
+
+  verifyEmail: async (token: string) => {
+    const response = await api.post('/api/auth/verify-email', { token })
     return response.data
   },
 }

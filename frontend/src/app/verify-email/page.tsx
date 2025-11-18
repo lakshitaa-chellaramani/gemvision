@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import axios from 'axios';
+import { authAPI } from '@/lib/api';
 
 function VerifyEmailContent() {
   const router = useRouter();
@@ -26,13 +26,10 @@ function VerifyEmailContent() {
       }
 
       try {
-        const response = await axios.post(
-          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/auth/verify-email`,
-          { token }
-        );
+        const response = await authAPI.verifyEmail(token);
 
         setStatus('success');
-        setMessage(response.data.message || 'Email verified successfully!');
+        setMessage(response.message || 'Email verified successfully!');
 
         // Redirect to login after 3 seconds
         setTimeout(() => {
