@@ -13,6 +13,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import Navbar from '@/components/Navbar'
 import WaitlistModal from '@/components/auth/WaitlistModal'
 import TrialCounter from '@/components/auth/TrialCounter'
+import { compressImage } from '@/lib/imageCompression'
 
 // API URL helper - matches same logic as api.ts
 const getApiUrl = () => {
@@ -109,41 +110,79 @@ function TryOnContent() {
     },
   })
 
-  const handleBodyPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBodyPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
       if (file.size > 10 * 1024 * 1024) {
         toast.error('File too large (max 10MB)')
         return
       }
-      setBodyPhoto(file)
 
-      // Create preview
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        setBodyPhotoPreview(e.target?.result as string)
+      // Show loading toast
+      const loadingToast = toast.loading('Compressing image...')
+
+      try {
+        // Compress image before setting
+        const compressedFile = await compressImage(file, {
+          maxSizeMB: 0.4, // 400KB max
+          maxWidthOrHeight: 1920,
+          quality: 0.85,
+        })
+
+        setBodyPhoto(compressedFile)
+
+        // Create preview
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          setBodyPhotoPreview(e.target?.result as string)
+        }
+        reader.readAsDataURL(compressedFile)
+
+        toast.success(`Body photo uploaded! (${(compressedFile.size / 1024).toFixed(0)} KB)`, {
+          id: loadingToast,
+        })
+      } catch (error) {
+        console.error('Compression error:', error)
+        toast.error('Failed to compress image', { id: loadingToast })
       }
-      reader.readAsDataURL(file)
-      toast.success('Body photo uploaded!')
     }
   }
 
-  const handleJewelryPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleJewelryPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
       if (file.size > 10 * 1024 * 1024) {
         toast.error('File too large (max 10MB)')
         return
       }
-      setJewelryPhoto(file)
 
-      // Create preview
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        setJewelryPhotoPreview(e.target?.result as string)
+      // Show loading toast
+      const loadingToast = toast.loading('Compressing image...')
+
+      try {
+        // Compress image before setting
+        const compressedFile = await compressImage(file, {
+          maxSizeMB: 0.4, // 400KB max
+          maxWidthOrHeight: 1920,
+          quality: 0.85,
+        })
+
+        setJewelryPhoto(compressedFile)
+
+        // Create preview
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          setJewelryPhotoPreview(e.target?.result as string)
+        }
+        reader.readAsDataURL(compressedFile)
+
+        toast.success(`Jewelry photo uploaded! (${(compressedFile.size / 1024).toFixed(0)} KB)`, {
+          id: loadingToast,
+        })
+      } catch (error) {
+        console.error('Compression error:', error)
+        toast.error('Failed to compress image', { id: loadingToast })
       }
-      reader.readAsDataURL(file)
-      toast.success('Jewelry photo uploaded!')
     }
   }
 
