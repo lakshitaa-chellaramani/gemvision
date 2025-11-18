@@ -126,11 +126,11 @@ export default function LoginPage() {
           </div>
 
           {/* Admin login hint */}
-          <div className="mt-4 p-3 rounded-lg bg-primary-50 border border-primary-200">
+          {/* <div className="mt-4 p-3 rounded-lg bg-primary-50 border border-primary-200">
             <p className="text-xs text-primary-700 text-center">
               <strong>Admin:</strong> lakshitaa@gemvision.com
             </p>
-          </div>
+          </div> */}
         </div>
 
         {/* Features */}
