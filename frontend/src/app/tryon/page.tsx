@@ -22,9 +22,9 @@ const getApiUrl = () => {
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       return 'http://localhost:8000'
     }
-    return 'https://gemvision.ai'
+    return 'https://jeweltech.ai'
   }
-  return 'https://gemvision.ai'
+  return 'https://jeweltech.ai'
 }
 
 const FINGER_TYPES: { value: FingerType; label: string }[] = [

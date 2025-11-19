@@ -15,11 +15,11 @@ const getApiUrl = () => {
     }
 
     // Production: use gemvision.ai
-    return 'https://gemvision.ai'
+    return 'https://jeweltech.ai'
   }
 
   // Server-side rendering or build time
-  return process.env.NEXT_PUBLIC_API_URL || 'https://gemvision.ai'
+  return process.env.NEXT_PUBLIC_API_URL || 'https://jeweltech.ai'
 }
 
 const API_URL = getApiUrl()
