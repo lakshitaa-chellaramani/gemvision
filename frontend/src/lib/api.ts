@@ -201,10 +201,12 @@ export const designerAPI = {
     formData.append('remove_background', removeBackground.toString())
     formData.append('export_format', exportFormat)
 
+    // 3D generation takes ~100-120 seconds, so use a longer timeout
     const response = await api.post('/api/designer/generate-3d', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      timeout: 180000, // 3 minutes (180 seconds)
     })
     return response.data
   },
