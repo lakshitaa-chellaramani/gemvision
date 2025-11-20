@@ -194,14 +194,19 @@ export default function DesignerPage() {
   const generate3DMutation = useMutation({
     mutationFn: async (imageUrl: string) => {
       // Pass URL directly to backend - backend will fetch it server-side (avoids CORS)
-      return designerAPI.generate3D(imageUrl, true, 'glb')
+      console.log('🎨 Starting 3D generation for:', imageUrl)
+      const result = await designerAPI.generate3D(imageUrl, true, 'glb')
+      console.log('✅ 3D generation response:', result)
+      return result
     },
     onSuccess: (data: Model3DResult) => {
+      console.log('🎉 3D generation successful!', data)
       setModel3D(data)
       setShow3DModal(true)
       toast.success('3D model generated successfully! 🎉')
     },
     onError: (error: any) => {
+      console.error('❌ 3D generation error:', error)
       // Check if it's a trial limit error
       if (error.response?.status === 402) {
         setShowWaitlist(true)
