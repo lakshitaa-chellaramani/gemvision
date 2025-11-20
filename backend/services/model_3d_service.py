@@ -44,8 +44,8 @@ class Model3DService:
             image.save(img_byte_arr, format='PNG')
             img_byte_arr.seek(0)
 
-            # Upload to Tripo API
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            # Upload to Tripo API (increased timeout for large images)
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.post(
                     f"{self.api_base_url}/upload",
                     headers={
@@ -80,7 +80,7 @@ class Model3DService:
             Task ID
         """
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.post(
                     f"{self.api_base_url}/task",
                     headers={
@@ -122,7 +122,7 @@ class Model3DService:
         try:
             start_time = time.time()
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 while time.time() - start_time < max_wait:
                     response = await client.get(
                         f"{self.api_base_url}/task/{task_id}",
@@ -167,7 +167,7 @@ class Model3DService:
             Model file bytes
         """
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.get(model_url)
 
                 if response.status_code != 200:
