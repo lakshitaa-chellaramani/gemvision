@@ -7,7 +7,7 @@ import { Toaster } from 'react-hot-toast'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'GemVision - AI-Powered Jewellery Design Platform',
+  title: 'JewelTech - AI-Powered Jewellery Design Platform',
   description: 'Design, visualize, and inspect jewellery with AI',
 }
 

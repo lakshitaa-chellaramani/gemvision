@@ -1,7 +1,7 @@
 {
-  "name": "gemvision-frontend",
+  "name": "jeweltech-frontend",
   "version": "1.0.0",
-  "description": "GemVision - AI-powered jewellery design platform",
+  "description": "JewelTech - AI-powered jewellery design platform",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -99,7 +99,7 @@ export default function HomePage() {
                 </div>
               </div>
               <h1 className="text-2xl font-bold text-gray-900">
-                GemVision
+                JewelTech
               </h1>
             </Link>
             {user ? (
@@ -469,7 +469,7 @@ export default function HomePage() {
                 <div className="relative bg-primary-600 w-8 h-8 rounded-lg rotate-45 flex items-center justify-center shadow-sm shadow-primary-400/40">
                   <Gem className="h-4 w-4 text-white -rotate-45" />
                 </div>
-                <span className="text-lg font-semibold text-gray-900">GemVision</span>
+                <span className="text-lg font-semibold text-gray-900">JewelTech</span>
               </div>
               <p className="text-sm text-gray-500 max-w-xs">
                 AI-assisted jewellery design, 3D visualization, and production-ready outputs in seconds.
@@ -510,7 +510,7 @@ export default function HomePage() {
             </div>
           </div>
           <div className="mt-8 border-t border-gray-100 pt-4 text-center text-xs text-gray-400">
-            © 2024 GemVision. All rights reserved.
+            © 2024 JewelTech. All rights reserved.
           </div>
         </div>
       </footer>

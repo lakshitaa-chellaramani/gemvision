@@ -1,5 +1,5 @@
 /**
- * Type definitions for GemVision
+ * Type definitions for JewelTech
  */
 
 export type JewelleryCategory = 'ring' | 'necklace' | 'earring' | 'bracelet'

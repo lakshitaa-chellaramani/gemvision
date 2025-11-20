@@ -328,7 +328,7 @@ export default function DesignerPage() {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `gemvision-design-${result?.design_id || 'unknown'}-${index + 1}.png`
+      a.download = `jeweltech-design-${result?.design_id || 'unknown'}-${index + 1}.png`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
@@ -339,7 +339,7 @@ export default function DesignerPage() {
       try {
         const a = document.createElement('a')
         a.href = imageUrl
-        a.download = `gemvision-design-${result?.design_id || 'unknown'}-${index + 1}.png`
+        a.download = `jeweltech-design-${result?.design_id || 'unknown'}-${index + 1}.png`
         a.target = '_blank'
         a.rel = 'noopener noreferrer'
         document.body.appendChild(a)
@@ -359,7 +359,7 @@ export default function DesignerPage() {
 
     const shareData = {
       title: 'Check out this AI-generated jewellery design!',
-      text: `Created with GemVision AI Designer - ${result.category} in ${result.style_preset} style`,
+      text: `Created with JewelTech AI Designer - ${result.category} in ${result.style_preset} style`,
       url: window.location.href,
     }
 
@@ -895,7 +895,7 @@ export default function DesignerPage() {
                     onClick={() => {
                       const a = document.createElement('a')
                       a.href = model3D.model_url
-                      a.download = `gemvision-3d-model-${model3D.generation_id}.${model3D.format}`
+                      a.download = `jeweltech-3d-model-${model3D.generation_id}.${model3D.format}`
                       a.click()
                       toast.success('3D model downloaded! 📥')
                     }}

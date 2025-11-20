@@ -39,7 +39,7 @@ export default function Navbar() {
             <div className="relative bg-primary-600 w-10 h-10 rounded-lg rotate-45 flex items-center justify-center shadow-md shadow-primary-400/40">
               <Gem className="h-5 w-5 text-white -rotate-45" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">GemVision</h1>
+            <h1 className="text-2xl font-bold text-gray-900">JewelTech</h1>
           </Link>
 
           {/* Desktop Navigation */}

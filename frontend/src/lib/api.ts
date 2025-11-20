@@ -1,5 +1,5 @@
 /**
- * API Client for GemVision Backend
+ * API Client for JewelTech Backend
  */
 import axios from 'axios'
 
@@ -14,7 +14,7 @@ const getApiUrl = () => {
       return 'http://localhost:8000'
     }
 
-    // Production: use gemvision.ai
+    // Production: use jeweltech.ai
     return 'https://jeweltech.ai'
   }
 
