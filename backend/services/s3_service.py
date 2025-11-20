@@ -55,12 +55,14 @@ class S3Service:
             # Construct S3 key
             key = f"{folder}/{filename}"
 
-            # Upload to S3
+            # Upload to S3 with CORS-friendly headers
             self.s3_client.put_object(
                 Bucket=self.bucket,
                 Key=key,
                 Body=image_data,
-                ContentType=content_type
+                ContentType=content_type,
+                CacheControl='public, max-age=31536000',  # Cache for 1 year
+                ContentDisposition='inline'  # Display in browser, not force download
             )
 
             # Generate presigned URL for temporary access (24 hours)

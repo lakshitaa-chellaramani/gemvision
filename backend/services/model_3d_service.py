@@ -14,6 +14,7 @@ import base64
 from PIL import Image
 import httpx
 from backend.app.config import settings
+from backend.services.s3_service import s3_service
 
 logger = logging.getLogger(__name__)
 
@@ -302,8 +303,7 @@ class Model3DService:
             logger.info(f"Downloading {export_format.upper()} model...")
             model_bytes = await self._download_model(model_url)
 
-            # Convert to base64 for data URL
-            model_base64 = base64.b64encode(model_bytes).decode('utf-8')
+            # Determine MIME type
             mime_types = {
                 "glb": "model/gltf-binary",
                 "obj": "model/obj",
@@ -312,16 +312,50 @@ class Model3DService:
                 "stl": "model/stl"
             }
             mime_type = mime_types.get(export_format, "application/octet-stream")
-            model_url_data = f"data:{mime_type};base64,{model_base64}"
 
-            # Create thumbnail
+            # Upload model to S3
+            logger.info(f"Uploading {export_format.upper()} model to S3...")
+            model_filename = f"3d_model_{generation_id}.{export_format}"
+
+            # First upload the model
+            s3_service.s3_client.put_object(
+                Bucket=s3_service.bucket,
+                Key=f"3d-models/{model_filename}",
+                Body=model_bytes,
+                ContentType=mime_type,
+                CacheControl='public, max-age=604800',  # Cache for 7 days
+                ContentDisposition='inline'
+            )
+
+            # Generate presigned URL with 7-day expiration
+            model_s3_url = s3_service.generate_presigned_url(
+                f"3d-models/{model_filename}",
+                expiration=604800  # 7 days
+            )
+            model_s3_key = f"3d-models/{model_filename}"
+
+            if not model_s3_url:
+                # Fallback to direct URL
+                model_s3_url = f"https://s3.{s3_service.s3_client.meta.region_name}.amazonaws.com/{s3_service.bucket}/{model_s3_key}"
+
+            logger.info(f"Model uploaded to S3: {model_s3_key}")
+
+            # Create and upload thumbnail to S3
+            logger.info("Creating and uploading thumbnail...")
             thumb_buffer = io.BytesIO()
             thumb_image = preprocessed_image.copy()
             thumb_image.thumbnail((300, 300), Image.Resampling.LANCZOS)
             thumb_image.save(thumb_buffer, format='PNG')
             thumb_buffer.seek(0)
-            thumb_base64 = base64.b64encode(thumb_buffer.getvalue()).decode('utf-8')
-            thumbnail_url = f"data:image/png;base64,{thumb_base64}"
+
+            thumb_filename = f"3d_thumb_{generation_id}.png"
+            thumbnail_url, thumb_s3_key = s3_service.upload_image(
+                image_data=thumb_buffer.getvalue(),
+                folder="3d-thumbnails",
+                filename=thumb_filename,
+                content_type="image/png"
+            )
+            logger.info(f"Thumbnail uploaded to S3: {thumb_s3_key}")
 
             # Estimate stats (Tripo doesn't provide these, so we estimate)
             stats = {
@@ -334,8 +368,8 @@ class Model3DService:
 
             result = {
                 "generation_id": generation_id,
-                "model_url": model_url_data,
-                "thumbnail_url": thumbnail_url,
+                "model_url": model_s3_url,  # S3 URL instead of base64 data URL
+                "thumbnail_url": thumbnail_url,  # S3 URL for thumbnail
                 "format": export_format,
                 "mime_type": mime_type,
                 "file_size": len(model_bytes),
@@ -343,7 +377,8 @@ class Model3DService:
                 "background_removed": remove_background,
                 "created_at": datetime.utcnow().isoformat(),
                 "success": True,
-                "tripo_task_id": task_id
+                "tripo_task_id": task_id,
+                "s3_key": model_s3_key  # Include S3 key for reference
             }
 
             logger.info(f"3D generation {generation_id} completed successfully")

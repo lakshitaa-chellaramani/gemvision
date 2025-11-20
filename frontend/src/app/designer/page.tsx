@@ -907,12 +907,25 @@ export default function DesignerPage() {
                   <Button
                     variant="primary"
                     className="flex-1"
-                    onClick={() => {
-                      const a = document.createElement('a')
-                      a.href = model3D.model_url
-                      a.download = `jeweltech-3d-model-${model3D.generation_id}.${model3D.format}`
-                      a.click()
-                      toast.success('3D model downloaded! 📥')
+                    onClick={async () => {
+                      try {
+                        // For S3 URLs, use fetch and blob download approach
+                        const response = await fetch(model3D.model_url)
+                        const blob = await response.blob()
+                        const url = window.URL.createObjectURL(blob)
+                        const a = document.createElement('a')
+                        a.href = url
+                        a.download = `jeweltech-3d-model-${model3D.generation_id}.${model3D.format}`
+                        document.body.appendChild(a)
+                        a.click()
+                        window.URL.revokeObjectURL(url)
+                        document.body.removeChild(a)
+                        toast.success('3D model downloaded! 📥')
+                      } catch (error) {
+                        // Fallback: open in new tab
+                        window.open(model3D.model_url, '_blank')
+                        toast.info('Opening model in new tab. Use browser download if needed.')
+                      }
                     }}
                   >
                     <Download className="mr-2 h-4 w-4" />
