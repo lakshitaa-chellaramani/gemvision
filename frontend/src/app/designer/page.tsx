@@ -207,6 +207,16 @@ export default function DesignerPage() {
     },
     onError: (error: any) => {
       console.error('❌ 3D generation error:', error)
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        name: error.name,
+        response: error.response,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        headers: error.response?.headers,
+      })
       // Check if it's a trial limit error
       if (error.response?.status === 402) {
         setShowWaitlist(true)
