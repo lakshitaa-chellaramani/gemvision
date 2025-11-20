@@ -924,7 +924,7 @@ export default function DesignerPage() {
                       } catch (error) {
                         // Fallback: open in new tab
                         window.open(model3D.model_url, '_blank')
-                        toast.info('Opening model in new tab. Use browser download if needed.')
+                        toast('Opening model in new tab. Use browser download if needed.', { icon: 'ℹ️' })
                       }
                     }}
                   >
