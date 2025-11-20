@@ -1,5 +1,5 @@
 """
-Demo Data Generator for GemVision
+Demo Data Generator for JewelTech
 Generates sample designs, try-ons, and inspections for testing
 """
 from backend.models.database import SessionLocal, Design, User, TryOn, QCInspection
@@ -20,7 +20,7 @@ def create_demo_user():
     # Create user
     user = User(
         id=1,
-        email="demo@gemvision.com",
+        email="demo@jeweltech.com",
         username="demo",
         created_at=datetime.utcnow()
     )
@@ -115,7 +115,7 @@ def create_demo_designs():
 
 def create_demo_data():
     """Create all demo data"""
-    print("Creating demo data for GemVision...")
+    print("Creating demo data for JewelTech...")
 
     # Create user
     create_demo_user()

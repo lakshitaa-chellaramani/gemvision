@@ -1,5 +1,5 @@
 """
-Waitlist Router for GemVision
+Waitlist Router for JewelTech
 Handles waitlist signup, Google Sheets export, and Excel download
 """
 from fastapi import APIRouter, HTTPException, status, Depends
@@ -135,7 +135,7 @@ async def export_waitlist_to_excel(
     # Create Excel workbook
     wb = Workbook()
     ws = wb.active
-    ws.title = "GemVision Waitlist"
+    ws.title = "JewelTech Waitlist"
 
     # Header styling
     header_fill = PatternFill(start_color="667EEA", end_color="667EEA", fill_type="solid")
@@ -186,7 +186,7 @@ async def export_waitlist_to_excel(
 
     # Generate filename with timestamp
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    filename = f"gemvision_waitlist_{timestamp}.xlsx"
+    filename = f"jeweltech_waitlist_{timestamp}.xlsx"
 
     return StreamingResponse(
         output,

@@ -1,5 +1,5 @@
 """
-Admin Dashboard Router for GemVision
+Admin Dashboard Router for JewelTech
 Admin-only endpoints for user management and analytics
 """
 from fastapi import APIRouter, HTTPException, status, Depends

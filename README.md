@@ -1,4 +1,4 @@
-# GemVision - AI-Powered Jewellery Platform
+# JewelTech - AI-Powered Jewellery Platform
 
 Complete AI-powered platform for jewellery design, virtual try-on, and quality inspection.
 
@@ -59,7 +59,7 @@ Automated defect detection for quality control with simulated and ML-based inspe
 ## Project Structure
 
 ```
-gemvision/
+jeweltech/
 ├── backend/                 # Python FastAPI backend
 │   ├── app/
 │   │   ├── main.py         # FastAPI app entry point
@@ -122,7 +122,7 @@ You'll need the following API keys:
 
 ```bash
 # Navigate to project directory
-cd gemvision
+cd jeweltech
 
 # Copy environment file
 cp .env.example .env
@@ -211,9 +211,9 @@ AWS_REGION=us-east-1
 AWS_S3_BUCKET=your-bucket-name
 
 # Database
-DATABASE_URL=sqlite:///./gemvision.db
+DATABASE_URL=sqlite:///./jeweltech.db
 # or for PostgreSQL:
-# DATABASE_URL=postgresql://user:password@localhost:5432/gemvision
+# DATABASE_URL=postgresql://user:password@localhost:5432/jeweltech
 
 # Image Generation
 DEFAULT_IMAGE_MODEL=dall-e-3
@@ -490,4 +490,4 @@ Built with:
 
 ---
 
-**GemVision** - Transforming jewellery design with AI
+**JewelTech** - Transforming jewellery design with AI

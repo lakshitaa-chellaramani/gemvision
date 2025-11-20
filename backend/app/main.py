@@ -1,5 +1,5 @@
 """
-GemVision FastAPI Backend
+JewelTech FastAPI Backend
 Main application entry point
 """
 from fastapi import FastAPI, Request
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
-    title="GemVision API",
+    title="JewelTech API",
     description="AI-powered jewellery design, try-on, and quality inspection platform",
     version="1.0.0",
     docs_url="/docs",
@@ -78,7 +78,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.on_event("startup")
 async def startup_event():
     """Initialize application on startup"""
-    logger.info("Starting GemVision API...")
+    logger.info("Starting JewelTech API...")
 
     # Initialize SQLite database (for existing features)
     try:
@@ -107,7 +107,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
-    logger.info("Shutting down GemVision API...")
+    logger.info("Shutting down JewelTech API...")
 
 
 # Health check endpoint
@@ -116,7 +116,7 @@ async def root():
     """Root endpoint - health check"""
     return {
         "status": "online",
-        "service": "GemVision API",
+        "service": "JewelTech API",
         "version": "1.0.0",
         "timestamp": datetime.utcnow().isoformat()
     }
@@ -151,7 +151,7 @@ app.include_router(qc_inspector.router, prefix="/api/qc", tags=["QC Inspector"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 
 # Note: Static file mounts removed - now using AWS S3 for all image storage
-# Images are stored in S3 bucket: gemvision-bucket (eu-north-1)
+# Images are stored in S3 bucket: jeweltech-bucket (eu-north-1)
 
 
 if __name__ == "__main__":

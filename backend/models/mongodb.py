@@ -1,5 +1,5 @@
 """
-MongoDB Models for GemVision
+MongoDB Models for JewelTech
 User authentication, trial tracking, and waitlist management
 """
 from pymongo import MongoClient, ASCENDING, DESCENDING
@@ -12,8 +12,8 @@ import os
 # MongoDB connection - Use Atlas if configured, otherwise local
 MONGO_ATLAS_URI = os.getenv("MONGO_ATLAS_URI", "")
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017/")
-MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "gemvision")
-MONGO_ATLAS_DB_NAME = os.getenv("MONGO_ATLAS_DB_NAME", "gemvision")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "jeweltech")
+MONGO_ATLAS_DB_NAME = os.getenv("MONGO_ATLAS_DB_NAME", "jeweltech")
 
 # Use Atlas URI if available, otherwise fall back to local
 ACTIVE_MONGO_URL = MONGO_ATLAS_URI if MONGO_ATLAS_URI else MONGODB_URL
@@ -369,7 +369,7 @@ def init_admin_user():
             password_hash = bcrypt.hashpw(password, bcrypt.gensalt()).decode('utf-8')
 
             admin_data = {
-                "email": "lakshitaa@gemvision.com",
+                "email": "lakshitaa@jeweltech.com",
                 "username": "lakshitaa",
                 "password_hash": password_hash,
                 "full_name": "Lakshitaa",
@@ -381,7 +381,7 @@ def init_admin_user():
             print("[DEBUG] Calling UserModel.create_user...")
             result = UserModel.create_user(admin_data)
             print(f"[SUCCESS] Admin user 'lakshitaa' created successfully!")
-            print(f"   Email: lakshitaa@gemvision.com")
+            print(f"   Email: lakshitaa@jeweltech.com")
             print(f"   Password: Lakshitaa@2112")
             print(f"   User ID: {result.get('_id', 'N/A')}")
         else:

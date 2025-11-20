@@ -79,7 +79,7 @@ class VirtualTryOnService:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(
                     url,
-                    headers={"User-Agent": "Mozilla/5.0 (compatible; GemVisionBot/1.0)"},
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; JewelTechBot/1.0)"},
                     follow_redirects=True
                 )
                 response.raise_for_status()

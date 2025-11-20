@@ -1,5 +1,5 @@
 """
-Authentication utilities for GemVision
+Authentication utilities for JewelTech
 JWT token handling, password hashing, and email verification
 """
 from datetime import datetime, timedelta
@@ -93,7 +93,7 @@ class EmailService:
 
             # Create email
             msg = MIMEMultipart("alternative")
-            msg["Subject"] = "Verify Your GemVision Account"
+            msg["Subject"] = "Verify Your JewelTech Account"
             msg["From"] = from_email
             msg["To"] = email
 
@@ -103,7 +103,7 @@ class EmailService:
               <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                 <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
                   <div style="text-align: center; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px 10px 0 0;">
-                    <h1 style="margin: 0;">Welcome to GemVision!</h1>
+                    <h1 style="margin: 0;">Welcome to JewelTech!</h1>
                   </div>
                   <div style="padding: 30px; background: #f9f9f9; border-radius: 0 0 10px 10px;">
                     <p style="font-size: 16px;">Hi <strong>{username}</strong>,</p>
@@ -138,7 +138,7 @@ class EmailService:
 
             # Plain text fallback
             text = f"""
-            Welcome to GemVision!
+            Welcome to JewelTech!
 
             Hi {username},
 
@@ -182,7 +182,7 @@ class EmailService:
                 return False
 
             msg = MIMEMultipart("alternative")
-            msg["Subject"] = "You're on the GemVision Waitlist!"
+            msg["Subject"] = "You're on the JewelTech Waitlist!"
             msg["From"] = from_email
             msg["To"] = email
 
@@ -195,7 +195,7 @@ class EmailService:
                   </div>
                   <div style="padding: 30px; background: #f9f9f9; border-radius: 0 0 10px 10px;">
                     <p style="font-size: 16px;">Hi <strong>{username}</strong>,</p>
-                    <p style="font-size: 16px;">Thank you for your interest in GemVision! You're now <strong>#{position}</strong> on our waitlist.</p>
+                    <p style="font-size: 16px;">Thank you for your interest in JewelTech! You're now <strong>#{position}</strong> on our waitlist.</p>
 
                     <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #667eea;">
                       <p style="margin: 0; font-size: 14px; color: #555;">

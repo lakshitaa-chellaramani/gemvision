@@ -1,5 +1,5 @@
 """
-Authentication Router for GemVision
+Authentication Router for JewelTech
 Handles user signup, login, email verification, and profile management
 """
 from fastapi import APIRouter, HTTPException, status, Depends, Request
