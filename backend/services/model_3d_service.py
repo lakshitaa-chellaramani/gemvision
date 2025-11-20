@@ -30,7 +30,7 @@ class Model3DService:
 
     async def _upload_image(self, image: Image.Image) -> str:
         """
-        Upload image to Tripo3D and get image token
+        Upload image to Tripo3D and get image token with retry logic
 
         Args:
             image: PIL Image to upload
@@ -38,35 +38,65 @@ class Model3DService:
         Returns:
             Image token from Tripo API
         """
-        try:
-            # Convert image to bytes
-            img_byte_arr = io.BytesIO()
-            image.save(img_byte_arr, format='PNG')
-            img_byte_arr.seek(0)
+        max_retries = 3
+        retry_delay = 2
 
-            # Upload to Tripo API (increased timeout for large images)
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                response = await client.post(
-                    f"{self.api_base_url}/upload",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}"
-                    },
-                    files={
-                        "file": ("image.png", img_byte_arr, "image/png")
-                    }
-                )
+        for attempt in range(max_retries):
+            try:
+                # Convert image to bytes with optimized compression
+                img_byte_arr = io.BytesIO()
+                # Use JPEG with quality 95 for smaller file size while maintaining quality
+                if image.mode in ('RGBA', 'LA', 'P'):
+                    # Convert transparent images to white background
+                    background = Image.new('RGB', image.size, (255, 255, 255))
+                    if image.mode == 'P':
+                        image = image.convert('RGBA')
+                    background.paste(image, mask=image.split()[-1] if image.mode in ('RGBA', 'LA') else None)
+                    image = background
 
-                if response.status_code != 200:
-                    raise Exception(f"Failed to upload image: HTTP {response.status_code} - {response.text}")
+                image.save(img_byte_arr, format='JPEG', quality=95, optimize=True)
+                img_byte_arr.seek(0)
+                file_size = len(img_byte_arr.getvalue())
+                logger.info(f"Image prepared for upload: {file_size} bytes (attempt {attempt + 1}/{max_retries})")
 
-                result = response.json()
-                image_token = result["data"]["image_token"]
-                logger.info(f"Image uploaded successfully: {image_token}")
-                return image_token
+                # Upload to Tripo API with extended timeout and retry
+                timeout = httpx.Timeout(180.0, connect=30.0)  # 180s total, 30s connect
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(
+                        f"{self.api_base_url}/upload",
+                        headers={
+                            "Authorization": f"Bearer {self.api_key}"
+                        },
+                        files={
+                            "file": ("image.jpg", img_byte_arr, "image/jpeg")
+                        }
+                    )
 
-        except Exception as e:
-            logger.error(f"Error uploading image to Tripo: {e}")
-            raise
+                    if response.status_code != 200:
+                        raise Exception(f"Failed to upload image: HTTP {response.status_code} - {response.text}")
+
+                    result = response.json()
+                    image_token = result["data"]["image_token"]
+                    logger.info(f"Image uploaded successfully: {image_token}")
+                    return image_token
+
+            except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                logger.warning(f"Timeout on attempt {attempt + 1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error("All retry attempts exhausted")
+                    raise Exception(f"Upload failed after {max_retries} attempts due to timeout. Please try again or check your network connection.")
+            except Exception as e:
+                logger.error(f"Error uploading image to Tripo (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    raise
 
     async def _create_task(self, image_token: str, mode: str = "image_to_model") -> str:
         """
